@@ -33,7 +33,7 @@ export default function AsistenciaPage() {
       .from('calendario_laboral')
       .select('fecha, tipo')
     if (calData) {
-      const map = new Map(calData.map(c => [c.fecha, c.tipo]))
+      const map = new Map(calData.map((c: any) => [c.fecha, c.tipo]))
       setCalendario(map)
     }
   }
@@ -100,7 +100,7 @@ export default function AsistenciaPage() {
     const nombreLimpio = nombreExcel.toLowerCase().trim()
     const partesExcel = nombreLimpio.split(' ')
     
-    return empleados.find(e => {
+    return empleados.find((e: any) => {
       const nombreBD = e.nombre_completo.toLowerCase()
       const partesBD = nombreBD.split(' ')
       
@@ -112,12 +112,12 @@ export default function AsistenciaPage() {
         const primerParte = partesExcel[0]
         const segundaParte = partesExcel[1] || ''
         
-        const primeraCoincide = partesBD.some(parte => 
+        const primeraCoincide = partesBD.some((parte: string) => 
           parte.startsWith(primerParte) || primerParte.startsWith(parte)
         )
         
         if (segundaParte) {
-          const segundaCoincide = partesBD.some(parte => 
+          const segundaCoincide = partesBD.some((parte: string) => 
             parte.startsWith(segundaParte) || segundaParte.startsWith(parte)
           )
           return primeraCoincide && segundaCoincide
@@ -319,20 +319,20 @@ export default function AsistenciaPage() {
     if (!data) return
 
     const totalRegistros = data.length
-    const horasExtrasTotales = data.reduce((sum, r) => sum + (r.horas_extras || 0), 0)
-    const horasTrabajadasTotales = data.reduce((sum, r) => sum + (r.horas_trabajadas || 0), 0)
-    const ausencias = data.filter(r => r.estado === 'ausente').length
-    const mediaJornada = data.filter(r => r.estado === 'media_jornada').length
-    const llegadasTarde = data.filter(r => r.estado === 'tarde').length
+    const horasExtrasTotales = data.reduce((sum: number, r: any) => sum + (r.horas_extras || 0), 0)
+    const horasTrabajadasTotales = data.reduce((sum: number, r: any) => sum + (r.horas_trabajadas || 0), 0)
+    const ausencias = data.filter((r: any) => r.estado === 'ausente').length
+    const mediaJornada = data.filter((r: any) => r.estado === 'media_jornada').length
+    const llegadasTarde = data.filter((r: any) => r.estado === 'tarde').length
 
     const horasPorEmpleado = new Map<string, number>()
-    data.forEach(r => {
+    data.forEach((r: any) => {
       const nombre = r.empleados?.nombre_completo || 'Sin nombre'
       horasPorEmpleado.set(nombre, (horasPorEmpleado.get(nombre) || 0) + (r.horas_extras || 0))
     })
 
     const topHorasExtras = Array.from(horasPorEmpleado.entries())
-      .sort((a, b) => b[1] - a[1])
+      .sort((a: [string, number], b: [string, number]) => b[1] - a[1])
       .slice(0, 5)
       .map(([nombre, horas]) => ({ nombre, horas }))
 
@@ -404,19 +404,19 @@ export default function AsistenciaPage() {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Columna Nombre</label>
                     <select value={mapeo.nombre} onChange={(e) => setMapeo({...mapeo, nombre: e.target.value})} className="w-full p-2 border border-gray-300 rounded">
-                      {columnasExcel.map(col => <option key={col} value={col}>{col}</option>)}
+                      {columnasExcel.map((col: string) => <option key={col} value={col}>{col}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Columna Fecha/Hora</label>
                     <select value={mapeo.fecha_hora} onChange={(e) => setMapeo({...mapeo, fecha_hora: e.target.value})} className="w-full p-2 border border-gray-300 rounded">
-                      {columnasExcel.map(col => <option key={col} value={col}>{col}</option>)}
+                      {columnasExcel.map((col: string) => <option key={col} value={col}>{col}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Columna Registro (0=Entrada, 1=Salida)</label>
                     <select value={mapeo.registro} onChange={(e) => setMapeo({...mapeo, registro: e.target.value})} className="w-full p-2 border border-gray-300 rounded">
-                      {columnasExcel.map(col => <option key={col} value={col}>{col}</option>)}
+                      {columnasExcel.map((col: string) => <option key={col} value={col}>{col}</option>)}
                     </select>
                   </div>
                 </div>
@@ -428,15 +428,15 @@ export default function AsistenciaPage() {
                       <table className="min-w-full text-sm border">
                         <thead className="bg-gray-50">
                           <tr>
-                            {columnasExcel.map(col => (
+                            {columnasExcel.map((col: string) => (
                               <th key={col} className="px-3 py-2 border text-left">{col}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {datosPreview.map((row, idx) => (
+                          {datosPreview.map((row: any, idx: number) => (
                             <tr key={idx} className="hover:bg-gray-50">
-                              {columnasExcel.map(col => (
+                              {columnasExcel.map((col: string) => (
                                 <td key={col} className="px-3 py-2 border">{row[col]}</td>
                               ))}
                             </tr>
