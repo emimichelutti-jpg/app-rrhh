@@ -15,7 +15,7 @@ export default function AsistenciaPage() {
   const [vista, setVista] = useState<'importar' | 'analisis'>('importar')
   const [estadisticas, setEstadisticas] = useState<any>(null)
   const [calcularExtras, setCalcularExtras] = useState(true)
-  const [horaLimite, setHoraLimite] = useState(9) // Hora límite para considerar "tarde"
+  const [horaLimite, setHoraLimite] = useState(9)
 
   useEffect(() => {
     cargarDatosIniciales()
@@ -69,9 +69,9 @@ export default function AsistenciaPage() {
         setDatosPreview(datos.slice(0, 5))
 
         setMapeo({
-          nombre: headers.find(h => h.toLowerCase().includes('nombre')) || headers[0] || '',
-          fecha_hora: headers.find(h => h.toLowerCase().includes('fecha') || h.toLowerCase().includes('hora')) || headers[1] || '',
-          registro: headers.find(h => h.toLowerCase().includes('registro')) || headers[2] || ''
+          nombre: headers.find((h: string) => h.toLowerCase().includes('nombre')) || headers[0] || '',
+          fecha_hora: headers.find((h: string) => h.toLowerCase().includes('fecha') || h.toLowerCase().includes('hora')) || headers[1] || '',
+          registro: headers.find((h: string) => h.toLowerCase().includes('registro')) || headers[2] || ''
         })
       }
     }
