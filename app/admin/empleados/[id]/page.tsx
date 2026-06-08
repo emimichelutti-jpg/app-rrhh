@@ -84,7 +84,9 @@ export default function FichaEmpleadoPage({ params }: { params: Promise<{ id: st
         contacto_emergencia_telefono: empleado.contacto_emergencia_telefono,
         contacto_emergencia_relacion: empleado.contacto_emergencia_relacion,
         obra_social: empleado.obra_social,
-        numero_afiliado: empleado.numero_afiliado
+        numero_afiliado: empleado.numero_afiliado,
+        jornada_laboral: empleado.jornada_laboral,
+        jornada_horas: empleado.jornada_horas
       })
       .eq('id', unwrappedParams.id)
 
@@ -152,7 +154,7 @@ export default function FichaEmpleadoPage({ params }: { params: Promise<{ id: st
 
         {/* Pestañas */}
         <div className="flex gap-2 mb-6 border-b overflow-x-auto">
-          {PESTAÑAS.map(p => (
+          {PESTAÑAS.map((p: any) => (
             <button
               key={p.id}
               onClick={() => setPestañaActiva(p.id)}
@@ -172,75 +174,77 @@ export default function FichaEmpleadoPage({ params }: { params: Promise<{ id: st
           {/* DATOS PERSONALES */}
           {pestañaActiva === 'personal' && (
             <div className="grid grid-cols-2 gap-4">
-              <Campo label="Nombre Completo" valor={empleado.nombre_completo} onChange={(v) => actualizarCampo('nombre_completo', v)} editando={editando} />
-              <Campo label="DNI" valor={empleado.dni} onChange={(v) => actualizarCampo('dni', v)} editando={editando} />
-              <Campo label="CUIL" valor={empleado.cuil} onChange={(v) => actualizarCampo('cuil', v)} editando={editando} />
-              <Campo label="Fecha de Nacimiento" valor={empleado.fecha_nacimiento} tipo="date" onChange={(v) => actualizarCampo('fecha_nacimiento', v)} editando={editando} />
-              <Campo label="Género" valor={empleado.genero} tipo="select" opciones={['masculino', 'femenino', 'otro', 'no_binario']} onChange={(v) => actualizarCampo('genero', v)} editando={editando} />
-              <Campo label="Estado Civil" valor={empleado.estado_civil} tipo="select" opciones={['soltero', 'casado', 'divorciado', 'viudo', 'union_libre']} onChange={(v) => actualizarCampo('estado_civil', v)} editando={editando} />
-              <Campo label="Nacionalidad" valor={empleado.nacionalidad} onChange={(v) => actualizarCampo('nacionalidad', v)} editando={editando} />
+              <Campo label="Nombre Completo" valor={empleado.nombre_completo} onChange={(v: any) => actualizarCampo('nombre_completo', v)} editando={editando} />
+              <Campo label="DNI" valor={empleado.dni} onChange={(v: any) => actualizarCampo('dni', v)} editando={editando} />
+              <Campo label="CUIL" valor={empleado.cuil} onChange={(v: any) => actualizarCampo('cuil', v)} editando={editando} />
+              <Campo label="Fecha de Nacimiento" valor={empleado.fecha_nacimiento} tipo="date" onChange={(v: any) => actualizarCampo('fecha_nacimiento', v)} editando={editando} />
+              <Campo label="Género" valor={empleado.genero} tipo="select" opciones={['masculino', 'femenino', 'otro', 'no_binario']} onChange={(v: any) => actualizarCampo('genero', v)} editando={editando} />
+              <Campo label="Estado Civil" valor={empleado.estado_civil} tipo="select" opciones={['soltero', 'casado', 'divorciado', 'viudo', 'union_libre']} onChange={(v: any) => actualizarCampo('estado_civil', v)} editando={editando} />
+              <Campo label="Nacionalidad" valor={empleado.nacionalidad} onChange={(v: any) => actualizarCampo('nacionalidad', v)} editando={editando} />
             </div>
           )}
 
           {/* CONTACTO */}
           {pestañaActiva === 'contacto' && (
             <div className="grid grid-cols-2 gap-4">
-              <Campo label="Domicilio" valor={empleado.domicilio} onChange={(v) => actualizarCampo('domicilio', v)} editando={editando} full />
-              <Campo label="Localidad" valor={empleado.localidad} onChange={(v) => actualizarCampo('localidad', v)} editando={editando} />
-              <Campo label="Provincia" valor={empleado.provincia} onChange={(v) => actualizarCampo('provincia', v)} editando={editando} />
-              <Campo label="Código Postal" valor={empleado.codigo_postal} onChange={(v) => actualizarCampo('codigo_postal', v)} editando={editando} />
-              <Campo label="Teléfono" valor={empleado.telefono} onChange={(v) => actualizarCampo('telefono', v)} editando={editando} />
-              <Campo label="Email Empresa" valor={empleado.email} onChange={(v) => actualizarCampo('email', v)} editando={editando} full />
-              <Campo label="Email Personal" valor={empleado.email_personal} onChange={(v) => actualizarCampo('email_personal', v)} editando={editando} full />
+              <Campo label="Domicilio" valor={empleado.domicilio} onChange={(v: any) => actualizarCampo('domicilio', v)} editando={editando} full />
+              <Campo label="Localidad" valor={empleado.localidad} onChange={(v: any) => actualizarCampo('localidad', v)} editando={editando} />
+              <Campo label="Provincia" valor={empleado.provincia} onChange={(v: any) => actualizarCampo('provincia', v)} editando={editando} />
+              <Campo label="Código Postal" valor={empleado.codigo_postal} onChange={(v: any) => actualizarCampo('codigo_postal', v)} editando={editando} />
+              <Campo label="Teléfono" valor={empleado.telefono} onChange={(v: any) => actualizarCampo('telefono', v)} editando={editando} />
+              <Campo label="Email Empresa" valor={empleado.email} onChange={(v: any) => actualizarCampo('email', v)} editando={editando} full />
+              <Campo label="Email Personal" valor={empleado.email_personal} onChange={(v: any) => actualizarCampo('email_personal', v)} editando={editando} full />
             </div>
           )}
 
           {/* DATOS LABORALES */}
           {pestañaActiva === 'laboral' && (
             <div className="grid grid-cols-2 gap-4">
-              <Campo label="Cargo" valor={empleado.cargo} onChange={(v) => actualizarCampo('cargo', v)} editando={editando} />
-              <Campo label="Departamento" valor={empleado.departamento_id} tipo="select-depto" deptos={departamentos} onChange={(v) => actualizarCampo('departamento_id', v)} editando={editando} />
-              <Campo label="Fecha de Ingreso" valor={empleado.fecha_ingreso} tipo="date" onChange={(v) => actualizarCampo('fecha_ingreso', v)} editando={editando} />
-              <Campo label="Tipo de Contrato" valor={empleado.tipo_contrato} tipo="select" opciones={['permanente', 'temporario', 'pasantia', 'contrato_riesgo']} onChange={(v) => actualizarCampo('tipo_contrato', v)} editando={editando} />
-              <Campo label="Período de Prueba hasta" valor={empleado.periodo_prueba_hasta} tipo="date" onChange={(v) => actualizarCampo('periodo_prueba_hasta', v)} editando={editando} />
-              <Campo label="Días de Vacaciones" valor={empleado.dias_vacaciones_disponibles} tipo="number" onChange={(v) => actualizarCampo('dias_vacaciones_disponibles', parseInt(v))} editando={editando} />
-              <Campo label="Convenio Colectivo" valor={empleado.convenio_colectivo} onChange={(v) => actualizarCampo('convenio_colectivo', v)} editando={editando} />
-              <Campo label="Categoría Sindical" valor={empleado.categoria_sindical} onChange={(v) => actualizarCampo('categoria_sindical', v)} editando={editando} />
-              <Campo label="Estado" valor={empleado.estado} tipo="select" opciones={['activo', 'inactivo']} onChange={(v) => actualizarCampo('estado', v)} editando={editando} />
+              <Campo label="Cargo" valor={empleado.cargo} onChange={(v: any) => actualizarCampo('cargo', v)} editando={editando} />
+              <Campo label="Departamento" valor={empleado.departamento_id} tipo="select-depto" deptos={departamentos} onChange={(v: any) => actualizarCampo('departamento_id', v)} editando={editando} />
+              <Campo label="Fecha de Ingreso" valor={empleado.fecha_ingreso} tipo="date" onChange={(v: any) => actualizarCampo('fecha_ingreso', v)} editando={editando} />
+              <Campo label="Tipo de Contrato" valor={empleado.tipo_contrato} tipo="select" opciones={['permanente', 'temporario', 'pasantia', 'contrato_riesgo']} onChange={(v: any) => actualizarCampo('tipo_contrato', v)} editando={editando} />
+              <Campo label="Período de Prueba hasta" valor={empleado.periodo_prueba_hasta} tipo="date" onChange={(v: any) => actualizarCampo('periodo_prueba_hasta', v)} editando={editando} />
+              <Campo label="Días de Vacaciones" valor={empleado.dias_vacaciones_disponibles} tipo="number" onChange={(v: any) => actualizarCampo('dias_vacaciones_disponibles', parseInt(v))} editando={editando} />
+              <Campo label="Horario de Trabajo" valor={empleado.jornada_laboral} onChange={(v: any) => actualizarCampo('jornada_laboral', v)} editando={editando} />
+              <Campo label="Horas Diarias" valor={empleado.jornada_horas} tipo="number" onChange={(v: any) => actualizarCampo('jornada_horas', parseFloat(v))} editando={editando} />
+              <Campo label="Convenio Colectivo" valor={empleado.convenio_colectivo} onChange={(v: any) => actualizarCampo('convenio_colectivo', v)} editando={editando} />
+              <Campo label="Categoría Sindical" valor={empleado.categoria_sindical} onChange={(v: any) => actualizarCampo('categoria_sindical', v)} editando={editando} />
+              <Campo label="Estado" valor={empleado.estado} tipo="select" opciones={['activo', 'inactivo']} onChange={(v: any) => actualizarCampo('estado', v)} editando={editando} />
             </div>
           )}
 
           {/* FAMILIA */}
           {pestañaActiva === 'familia' && (
             <div className="grid grid-cols-2 gap-4">
-              <Campo label="Nombre del Cónyuge" valor={empleado.nombre_conyuge} onChange={(v) => actualizarCampo('nombre_conyuge', v)} editando={editando} />
-              <Campo label="Hijos a Cargo" valor={empleado.hijos_a_cargo} tipo="number" onChange={(v) => actualizarCampo('hijos_a_cargo', parseInt(v))} editando={editando} />
+              <Campo label="Nombre del Cónyuge" valor={empleado.nombre_conyuge} onChange={(v: any) => actualizarCampo('nombre_conyuge', v)} editando={editando} />
+              <Campo label="Hijos a Cargo" valor={empleado.hijos_a_cargo} tipo="number" onChange={(v: any) => actualizarCampo('hijos_a_cargo', parseInt(v))} editando={editando} />
             </div>
           )}
 
           {/* DATOS BANCARIOS */}
           {pestañaActiva === 'bancario' && (
             <div className="grid grid-cols-2 gap-4">
-              <Campo label="Banco" valor={empleado.cuenta_banco} onChange={(v) => actualizarCampo('cuenta_banco', v)} editando={editando} full />
-              <Campo label="CBU" valor={empleado.cbu} onChange={(v) => actualizarCampo('cbu', v)} editando={editando} />
-              <Campo label="Alias CBU" valor={empleado.alias_cbu} onChange={(v) => actualizarCampo('alias_cbu', v)} editando={editando} />
+              <Campo label="Banco" valor={empleado.cuenta_banco} onChange={(v: any) => actualizarCampo('cuenta_banco', v)} editando={editando} full />
+              <Campo label="CBU" valor={empleado.cbu} onChange={(v: any) => actualizarCampo('cbu', v)} editando={editando} />
+              <Campo label="Alias CBU" valor={empleado.alias_cbu} onChange={(v: any) => actualizarCampo('alias_cbu', v)} editando={editando} />
             </div>
           )}
 
           {/* CONTACTO DE EMERGENCIA */}
           {pestañaActiva === 'emergencia' && (
             <div className="grid grid-cols-2 gap-4">
-              <Campo label="Nombre del Contacto" valor={empleado.contacto_emergencia_nombre} onChange={(v) => actualizarCampo('contacto_emergencia_nombre', v)} editando={editando} />
-              <Campo label="Teléfono" valor={empleado.contacto_emergencia_telefono} onChange={(v) => actualizarCampo('contacto_emergencia_telefono', v)} editando={editando} />
-              <Campo label="Relación" valor={empleado.contacto_emergencia_relacion} onChange={(v) => actualizarCampo('contacto_emergencia_relacion', v)} editando={editando} />
+              <Campo label="Nombre del Contacto" valor={empleado.contacto_emergencia_nombre} onChange={(v: any) => actualizarCampo('contacto_emergencia_nombre', v)} editando={editando} />
+              <Campo label="Teléfono" valor={empleado.contacto_emergencia_telefono} onChange={(v: any) => actualizarCampo('contacto_emergencia_telefono', v)} editando={editando} />
+              <Campo label="Relación" valor={empleado.contacto_emergencia_relacion} onChange={(v: any) => actualizarCampo('contacto_emergencia_relacion', v)} editando={editando} />
             </div>
           )}
 
           {/* SALUD */}
           {pestañaActiva === 'salud' && (
             <div className="grid grid-cols-2 gap-4">
-              <Campo label="Obra Social" valor={empleado.obra_social} onChange={(v) => actualizarCampo('obra_social', v)} editando={editando} />
-              <Campo label="N° de Afiliado" valor={empleado.numero_afiliado} onChange={(v) => actualizarCampo('numero_afiliado', v)} editando={editando} />
+              <Campo label="Obra Social" valor={empleado.obra_social} onChange={(v: any) => actualizarCampo('obra_social', v)} editando={editando} />
+              <Campo label="N° de Afiliado" valor={empleado.numero_afiliado} onChange={(v: any) => actualizarCampo('numero_afiliado', v)} editando={editando} />
             </div>
           )}
         </div>
@@ -266,7 +270,7 @@ function Campo({ label, valor, onChange, editando, tipo = 'text', opciones, dept
     return (
       <div className={full ? 'col-span-2' : ''}>
         <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-        <select value={valor || ''} onChange={(e) => onChange(e.target.value)} className="w-full p-2 border border-gray-300 rounded">
+        <select value={valor || ''} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange(e.target.value)} className="w-full p-2 border border-gray-300 rounded">
           <option value="">Seleccionar...</option>
           {opciones.map((op: string) => <option key={op} value={op}>{op}</option>)}
         </select>
@@ -278,7 +282,7 @@ function Campo({ label, valor, onChange, editando, tipo = 'text', opciones, dept
     return (
       <div className={full ? 'col-span-2' : ''}>
         <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-        <select value={valor || ''} onChange={(e) => onChange(e.target.value)} className="w-full p-2 border border-gray-300 rounded">
+        <select value={valor || ''} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => onChange(e.target.value)} className="w-full p-2 border border-gray-300 rounded">
           <option value="">Seleccionar...</option>
           {deptos?.map((d: any) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
         </select>
@@ -289,7 +293,7 @@ function Campo({ label, valor, onChange, editando, tipo = 'text', opciones, dept
   return (
     <div className={full ? 'col-span-2' : ''}>
       <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <input type={tipo} value={valor || ''} onChange={(e) => onChange(e.target.value)} className="w-full p-2 border border-gray-300 rounded" />
+      <input type={tipo} value={valor || ''} onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)} className="w-full p-2 border border-gray-300 rounded" />
     </div>
   )
 }
