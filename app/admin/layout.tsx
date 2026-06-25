@@ -1,56 +1,91 @@
+import { ReactNode } from 'react'
 import Link from 'next/link'
-import AdminGuard from './AdminGuard'
 
-const menuItems = [
-  { href: '/admin/empleados', label: 'Gestionar Empleados', icon: '' },
-  { href: '/admin/documentos', label: 'Documentos', icon: '' },
-  { href: '/admin/licencias', label: 'Licencias', icon: '' },
-  { href: '/admin/asistencia', label: 'Asistencia', icon: '⏰' },
-  { href: '/admin/reportes', label: 'Reportes', icon: '📊' },
-]
-
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
-    <AdminGuard>
-      <div className="min-h-screen bg-gray-50 flex">
-        {/* Sidebar */}
-        <aside className="w-64 bg-white shadow-md flex flex-col">
-          <div className="p-6 border-b">
-            <Link href="/dashboard" className="text-xl font-bold text-blue-600">
-              RRHH Panel
-            </Link>
-            <p className="text-xs text-gray-500 mt-1">Administración</p>
-          </div>
-
-          <nav className="flex-1 p-4 space-y-2">
-            {menuItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+    <div className="min-h-screen bg-gray-100">
+      {/* Header */}
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">RRHH Panel</h1>
+              <p className="text-sm text-gray-600">Administración</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <Link 
+                href="/" 
+                className="text-sm text-blue-600 hover:text-blue-800"
               >
-                <span className="text-xl">{item.icon}</span>
-                <span className="font-medium">{item.label}</span>
+                ← Volver al inicio
               </Link>
-            ))}
-          </nav>
-
-          <div className="p-4 border-t">
-            <Link
-              href="/dashboard"
-              className="flex items-center gap-3 px-4 py-3 rounded-lg text-gray-700 hover:bg-gray-100"
-            >
-              <span className="text-xl">🏠</span>
-              <span className="font-medium">Volver al Dashboard</span>
-            </Link>
+            </div>
           </div>
+        </div>
+      </header>
+
+      <div className="flex">
+        {/* Sidebar */}
+        <aside className="w-64 bg-white shadow-md min-h-screen p-4">
+          <nav className="space-y-2">
+            <Link 
+              href="/admin/empleados" 
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+              👥 Gestionar Empleados
+            </Link>
+            
+            <Link 
+              href="/admin/asistencia" 
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+              🕐 Asistencia
+            </Link>
+            
+            <Link 
+              href="/admin/recibos" 
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+              💰 Recibos de Sueldo
+            </Link>
+            
+            <Link 
+              href="/admin/dashboard" 
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+              📊 Dashboard
+            </Link>
+            
+            <div className="border-t my-4"></div>
+            
+            <Link 
+              href="/admin/documentos" 
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+              📄 Documentos
+            </Link>
+            
+            <Link 
+              href="/admin/licencias" 
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+              🏖️ Licencias
+            </Link>
+            
+            <Link 
+              href="/admin/reportes" 
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+              📈 Reportes
+            </Link>
+          </nav>
         </aside>
 
-        {/* Contenido principal */}
-        <main className="flex-1 overflow-auto">
+        {/* Main Content */}
+        <main className="flex-1 p-8">
           {children}
         </main>
       </div>
-    </AdminGuard>
+    </div>
   )
 }
