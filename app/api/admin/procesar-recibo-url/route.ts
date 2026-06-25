@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     }
 
     // 🔑 3. NORMALIZAR CUILs del backend Python (quitar guiones)
-    const recibosNormalizados = recibosExtraidos.map(r => ({
+    const recibosNormalizados = recibosExtraidos.map((r: any) => ({
       ...r,
       cuil: normalizarCUIL(r.cuil)
     }))
