@@ -11,7 +11,8 @@ export async function procesarReciboPDF(formData: FormData) {
 
   try {
     // Importación dinámica dentro de la función para evitar problemas de cache
-    const pdfParse = (await import('pdf-parse')).default
+    const pdfParseModule = await import('pdf-parse')
+    const pdfParse = pdfParseModule.default || pdfParseModule
     
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
