@@ -8,10 +8,10 @@ const supabase = createClient(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params
+    const { id } = await params
     const { motivo } = await request.json()
 
     if (!motivo || motivo.trim().length === 0) {
@@ -44,7 +44,7 @@ export async function DELETE(
     if (deleteError) throw deleteError
 
     console.log(`🗑️ Recibo eliminado: ${recibo.empleados.nombre_completo} - ${recibo.periodo} ${recibo.quincena}`)
-    console.log(` Motivo: ${motivo}`)
+    console.log(`📝 Motivo: ${motivo}`)
 
     return NextResponse.json({
       success: true,
@@ -52,7 +52,7 @@ export async function DELETE(
     })
 
   } catch (error: any) {
-    console.error('Error eliminando recibo:', error)
+    console.error('❌ Error eliminando recibo:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
