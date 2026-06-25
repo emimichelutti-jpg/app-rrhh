@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
     // 1. Descargar TODOS los PDFs en paralelo
     const pdfBuffers = await Promise.all(
-      archivos.map(async ({ pdfUrl, fileName }) => {
+      archivos.map(async ({ pdfUrl, fileName }: { pdfUrl: string; fileName: string }) => {
         try {
           const response = await fetch(pdfUrl)
           if (!response.ok) throw new Error(`Error descargando ${fileName}`)
