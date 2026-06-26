@@ -39,7 +39,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               href="/admin/asistencia"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
-               Asistencia
+              🕒 Asistencia
             </Link>
 
             <Link
@@ -53,7 +53,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               href="/admin/solicitudes"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
-               Solicitudes
+              📝 Solicitudes
+            </Link>
+
+            <Link
+              href="/admin/incentivos"
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+              🎯 Incentivos
             </Link>
 
             <Link
@@ -76,7 +83,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               href="/admin/licencias"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
-              ️ Licencias
+              🏖️ Licencias
             </Link>
 
             <Link
