@@ -13,8 +13,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               <p className="text-sm text-gray-600">Administración</p>
             </div>
             <div className="flex items-center gap-4">
-              <Link 
-                href="/" 
+              <Link
+                href="/"
                 className="text-sm text-blue-600 hover:text-blue-800"
               >
                 ← Volver al inicio
@@ -28,52 +28,59 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         {/* Sidebar */}
         <aside className="w-64 bg-white shadow-md min-h-screen p-4">
           <nav className="space-y-2">
-            <Link 
-              href="/admin/empleados" 
+            <Link
+              href="/admin/empleados"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
               👥 Gestionar Empleados
             </Link>
-            
-            <Link 
-              href="/admin/asistencia" 
+
+            <Link
+              href="/admin/asistencia"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
-              🕐 Asistencia
+               Asistencia
             </Link>
-            
-            <Link 
-              href="/admin/recibos" 
+
+            <Link
+              href="/admin/recibos"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
               💰 Recibos de Sueldo
             </Link>
-            
-            <Link 
-              href="/admin/dashboard" 
+
+            <Link
+              href="/admin/solicitudes"
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+               Solicitudes
+            </Link>
+
+            <Link
+              href="/admin/dashboard"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
               📊 Dashboard
             </Link>
-            
+
             <div className="border-t my-4"></div>
-            
-            <Link 
-              href="/admin/documentos" 
+
+            <Link
+              href="/admin/documentos"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
               📄 Documentos
             </Link>
-            
-            <Link 
-              href="/admin/licencias" 
+
+            <Link
+              href="/admin/licencias"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
-              🏖️ Licencias
+              ️ Licencias
             </Link>
-            
-            <Link 
-              href="/admin/reportes" 
+
+            <Link
+              href="/admin/reportes"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
               📈 Reportes

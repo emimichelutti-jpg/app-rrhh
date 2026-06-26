@@ -335,3 +335,5 @@ Doble columna de estado
 Decisión: Mantener estado y estado_firma como columnas separadas.
 Razón: Compatibilidad con código legacy. Ambas deben actualizarse juntas.
 Última actualización: 25 de junio de 2026
+## 📅 Actualización: 26/06/2026 - Deploy a Producción y Consolidación de Funcionalidades
+... (pegá el bloque de arriba) ...
