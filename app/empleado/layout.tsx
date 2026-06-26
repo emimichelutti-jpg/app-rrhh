@@ -76,8 +76,10 @@ export default function EmpleadoLayout({
     return null
   }
 
-  const menuItems = [
+      const menuItems = [
     { href: '/empleado/recibos', label: 'Mis Recibos', icon: '📄' },
+    { href: '/empleado/incentivos', label: 'Mis Incentivos', icon: '🎯' },
+    { href: '/empleado/dashboard', label: 'Mi Dashboard', icon: '📊' },
     { href: '/empleado/solicitudes', label: 'Solicitudes', icon: '💰' },
   ]
 
