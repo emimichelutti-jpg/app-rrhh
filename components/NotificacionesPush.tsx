@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -21,6 +21,7 @@ export default function NotificacionesPush() {
   const [notificaciones, setNotificaciones] = useState<Notificacion[]>([])
   const [empleadoId, setEmpleadoId] = useState<string | null>(null)
   const [permisoNotificaciones, setPermisoNotificaciones] = useState(false)
+  const notificacionesMostradas = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const empleadoData = localStorage.getItem('empleado_data')
@@ -30,12 +31,10 @@ export default function NotificacionesPush() {
       cargarNoLeidas(emp.id)
     }
 
-    // Verificar permiso de notificaciones del navegador
     if ('Notification' in window && Notification.permission === 'granted') {
       setPermisoNotificaciones(true)
     }
 
-    // Suscribirse a nuevas notificaciones en tiempo real
     const subscription = supabase
       .channel('notificaciones-push')
       .on(
@@ -48,7 +47,9 @@ export default function NotificacionesPush() {
         (payload) => {
           const nueva = payload.new as any
           if (nueva && empleadoId && nueva.empleado_id === empleadoId) {
-            mostrarPopUp(nueva)
+            if (!notificacionesMostradas.current.has(nueva.id)) {
+              mostrarPopUp(nueva)
+            }
           }
         }
       )
@@ -70,14 +71,22 @@ export default function NotificacionesPush() {
 
     if (data && data.length > 0) {
       data.forEach((notif, index) => {
-        setTimeout(() => {
-          mostrarPopUp(notif, false)
-        }, index * 1500)
+        if (!notificacionesMostradas.current.has(notif.id)) {
+          setTimeout(() => {
+            mostrarPopUp(notif, false)
+          }, index * 1500)
+        }
       })
     }
   }
 
   const mostrarPopUp = (notif: Notificacion, reproducirSonido: boolean = true) => {
+    // Evitar duplicados usando useRef
+    if (notificacionesMostradas.current.has(notif.id)) {
+      return
+    }
+    notificacionesMostradas.current.add(notif.id)
+
     setNotificaciones((prev) => [...prev, notif])
 
     if (reproducirSonido) {
@@ -93,6 +102,7 @@ export default function NotificacionesPush() {
 
     setTimeout(() => {
       setNotificaciones((prev) => prev.filter((n) => n.id !== notif.id))
+      notificacionesMostradas.current.delete(notif.id)
     }, 6000)
   }
 
@@ -119,6 +129,9 @@ export default function NotificacionesPush() {
       case 'incentivo_cargado': return '🎯'
       case 'recibo_pendiente': return '📄'
       case 'cuota_proxima': return '💰'
+      case 'cbu_actualizado': return ''
+      case 'cbu_rechazado': return '❌'
+      case 'solicitud_cbu': return '🏦'
       default: return '🔔'
     }
   }
@@ -145,7 +158,7 @@ export default function NotificacionesPush() {
       <div className="fixed top-20 right-4 z-50 space-y-3 max-w-sm">
         {notificaciones.map((notif) => (
           <div
-            key={notif.id}
+            key={`notif-${notif.id}-${Date.now()}`}
             className="bg-white rounded-lg shadow-2xl p-4 border-l-4 border-blue-500"
             style={{ animation: 'slideIn 0.3s ease-out' }}
           >

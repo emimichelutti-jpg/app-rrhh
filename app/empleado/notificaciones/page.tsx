@@ -65,6 +65,9 @@ export default function NotificacionesPage() {
       case 'incentivo_cargado': return '🎯'
       case 'recibo_pendiente': return '📄'
       case 'cuota_proxima': return '💰'
+      case 'cbu_actualizado': return '🏦'
+      case 'cbu_rechazado': return '❌'
+      case 'solicitud_cbu': return '🏦'
       default: return '🔔'
     }
   }
@@ -75,6 +78,7 @@ export default function NotificacionesPage() {
     return (
       <div className="text-center py-12">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="mt-4 text-gray-600">Cargando notificaciones...</p>
       </div>
     )
   }
@@ -85,7 +89,7 @@ export default function NotificacionesPage() {
         <div>
           <h1 className="text-2xl font-bold">Mis Notificaciones</h1>
           <p className="text-gray-600">
-            {noLeidas > 0 ? `${noLeidas} no leídas` : 'Todas leídas ✓'}
+            {noLeidas > 0 ? `${noLeidas} no leídas` : 'Todas leídas'}
           </p>
         </div>
         {noLeidas > 0 && (
