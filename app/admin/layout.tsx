@@ -101,11 +101,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             </Link>
 
             <Link
-              href="/admin/reportes"
-              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
-            >
-              📈 Reportes
-            </Link>
+  href="/admin/reportes"
+  className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+>
+  📈 Reportes
+</Link>
           </nav>
         </aside>
 
