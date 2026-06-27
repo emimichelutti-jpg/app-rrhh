@@ -702,7 +702,7 @@ ext.config.js con ignoreBuildErrors: true para evitar fallos de TypeScript stric
 - **Login Operativo:** Todos los empleados ingresan con CUIL (con o sin guiones) y contraseña 123456.
 
 ### 👁️ Nueva Funcionalidad: Vista Previa de PDF
-- **Modal de Preview:** Implementado en pp/empleado/recibos/page.tsx.
+- **Modal de Preview:** Implementado en  pp/empleado/recibos/page.tsx.
 - **Visor Integrado:** iframe cargando pdf_original_url con zoom nativo del navegador.
 - **Flujo Mejorado:** Botón "👁 Ver Recibo" → Modal con datos del empleado/recibo → Botones contextuales: "✍️ Firmar desde Preview" (pendientes) o "⬇️ Descargar PDF Firmado" (firmados).
 - **UX:** Header gradiente, footer fijo con acciones, cierre seguro.
@@ -733,3 +733,278 @@ ext.config.js con ignoreBuildErrors: true para evitar fallos de TypeScript stric
 2. 🐍 Deploy del backend Python a Railway/Render para carga masiva en producción
 3. 📊 Reportes administrativos exportables (Excel/PDF)
 4.  Sistema de notificaciones/recordatorios para recibos pendientes
+
+
+
+
+
+
+
+
+# Sistema de Gestión de RRHH - App Completa
+
+## 📋 Descripción
+Aplicación web completa para gestión de Recursos Humanos con portal de empleado y panel administrativo.
+
+##  Estado Actual: PRODUCCIÓN
+
+## 🏗️ Arquitectura
+- **Frontend:** Next.js 16.2.7 (Turbopack)
+- **Backend:** Supabase (PostgreSQL + Auth + Realtime)
+- **Estilos:** Tailwind CSS
+- **Gráficos:** Recharts
+- **Excel:** xlsx library
+- **Deploy:** Vercel (pendiente)
+
+## 👥 Roles de Usuario
+
+### 1. Empleado
+- Login con CUIL
+- Portal personalizado
+- Notificaciones push en tiempo real
+
+### 2. Administrador RRHH
+- Gestión completa del sistema
+- Aprobaciones y reportes
+
+## 📦 Módulos Implementados
+
+### Portal del Empleado
+
+#### 1. Mis Recibos (`/empleado/recibos`)
+- ✅ Ver recibos de sueldo
+- ✅ Firma digital con canvas
+- ✅ Descarga de PDF
+- ✅ Historial de recibos firmados
+
+#### 2. Mis Incentivos (`/empleado/incentivos`)
+- ✅ Ver incentivo del mes actual
+- ✅ Detalle de descuentos aplicados
+- ✅ Historial de incentivos
+- ✅ Cálculo automático de neto
+
+#### 3. Mi Dashboard (`/empleado/dashboard`)
+- ✅ Resumen financiero separado (sueldo e incentivos)
+- ✅ Próximas fechas de pago
+- ✅ Adelantos activos
+- ✅ Nota explicativa de pagos a mes vencido
+
+#### 4. Datos Bancarios (`/empleado/datos-bancarios`)
+- ✅ Ver CBU actual (solo lectura)
+- ✅ Solicitar cambio de CBU
+- ✅ Validación de 22 dígitos
+- ✅ Historial de solicitudes
+- ⚠️ NO puede modificar directamente (requiere aprobación)
+
+#### 5. Solicitudes (`/empleado/solicitudes`)
+- ✅ Solicitar adelanto de sueldo
+- ✅ Solicitar préstamo personal
+- ✅ Validación automática (adelanto vs préstamo)
+- ✅ Seguimiento de estado
+- ✅ Configuración de cuotas (1-4)
+
+#### 6. Notificaciones (`/empleado/notificaciones`)
+- ✅ Historial de notificaciones
+- ✅ Filtros (todas/no leídas)
+- ✅ Marcar como leída
+- ✅ Push notifications en tiempo real
+- ✅ Sonido de notificación
+- ✅ Notificaciones del navegador
+
+### Panel Administrativo
+
+#### 1. Gestionar Empleados (`/admin/empleados`)
+- ✅ Alta de empleados
+- ✅ Edición de datos
+- ✅ Legajo completo
+- ✅ Carga de CBU/banco/alias
+
+#### 2. Recibos de Sueldo (`/admin/recibos`)
+- ✅ Generación de recibos
+- ✅ Cálculo automático de haberes/descuentos
+- ✅ Firma digital
+- ✅ Historial
+
+#### 3. Solicitudes (`/admin/solicitudes`)
+- ✅ Ver solicitudes pendientes
+- ✅ Aprobar con configuración de cuotas
+- ✅ Rechazar con motivo
+- ✅ Notificación automática al empleado
+
+#### 4. Incentivos (`/admin/incentivos`)
+- ✅ Carga desde Excel (validación de CUIL)
+- ✅ Preview antes de guardar
+- ✅ Cálculo automático de netos
+- ✅ Historial con descuentos
+
+#### 5. Descuentos (`/admin/incentivos` - tab descuentos)
+- ✅ Carga desde Excel
+- ✅ Tipos: herramientas, equipos, multas, otros
+- ✅ Aplicación automática a incentivos
+- ✅ Financiamiento si supera el incentivo
+
+#### 6. Planillas (`/admin/planillas`)
+- ✅ Exportación Excel para banco
+- ✅ 3 sheets: Sueldos, Incentivos, Resumen
+- ✅ Incluye CBU y Alias
+- ✅ Totales por empleado
+
+#### 7. Cambio CBU (`/admin/cambio-cbu`)
+- ✅ Ver solicitudes pendientes
+- ✅ Aprobar (actualiza CBU automáticamente)
+- ✅ Rechazar con motivo
+- ✅ Notificación al empleado
+- ✅ Auditoría completa
+
+#### 8. Reportes (`/admin/reportes`)
+- ✅ 4 pestañas: Resumen, Incentivos, Solicitudes, Empleados
+- ✅ Gráficos interactivos (Recharts)
+- ✅ Ranking de empleados
+- ✅ Tasa de aprobación
+- ✅ Evolución mensual
+- ✅ Exportación a Excel
+
+#### 9. Dashboard (`/admin/dashboard`)
+- ✅ Métricas clave
+- ✅ Vista general del sistema
+
+## 🔔 Sistema de Notificaciones
+
+### Tipos de Notificaciones
+- ✅ `adelanto_aprobado` - Cuando se aprueba un adelanto
+- ✅ `adelanto_rechazado` - Cuando se rechaza
+- ✅ `incentivo_cargado` - Cuando se carga un incentivo
+- ✅ `cbu_actualizado` - Cuando se aprueba cambio de CBU
+- ✅ `cbu_rechazado` - Cuando se rechaza cambio de CBU
+- ✅ `solicitud_cbu` - Nueva solicitud de cambio de CBU
+- ✅ `recibo_pendiente` - Recordatorio de firma
+- ✅ `cuota_proxima` - Recordatorio de cuota
+
+### Características
+- ✅ Push notifications en tiempo real (Supabase Realtime)
+- ✅ Sonido de notificación
+- ✅ Notificaciones del navegador (si se aceptan permisos)
+- ✅ Badge con contador en el menú
+- ✅ Historial completo
+
+## 🗄️ Base de Datos (Supabase)
+
+### Tablas Principales
+- `empleados` - Datos de empleados
+- `recibos_sueldo` - Recibos generados
+- `solicitudes_sueldo` - Adelantos y préstamos
+- `incentivos` - Incentivos por período
+- `descuentos_incentivos` - Descuentos aplicados
+- `notificaciones` - Sistema de notificaciones
+- `solicitudes_cambio_cbu` - Solicitudes de cambio de CBU
+
+### Políticas RLS
+- ✅ Empleados solo ven sus datos
+- ✅ Admin tiene acceso completo
+- ✅ Realtime habilitado para notificaciones
+
+##  Métricas Actuales (Junio 2026)
+
+- **Empleados Activos:** 85
+- **Incentivos Pagados:** $111.000
+- **Masa Salarial:** $1.241.032
+- **Adelantos Aprobados:** $750.000
+- **Tasa de Aprobación:** 100%
+
+## 🚀 Funcionalidades Profesionales
+
+### Seguridad
+- ✅ Cambio de CBU requiere aprobación
+- ✅ Auditoría de cambios
+- ✅ Validación de datos
+- ✅ Separación de responsabilidades
+
+### Automatización
+- ✅ Cálculo automático de netos
+- ✅ Notificaciones en tiempo real
+- ✅ Actualización automática de CBU
+- ✅ Generación de planillas
+
+### Experiencia de Usuario
+- ✅ Portal moderno y responsive
+- ✅ Notificaciones push
+- ✅ Gráficos interactivos
+- ✅ Exportación a Excel
+- ✅ Flujos claros y simples
+
+## 📈 Roadmap Futuro
+
+### Fase 5: Más Automatizaciones
+- [ ] Reportes de ausentismo
+- [ ] Control de vacaciones
+- [ ] Evaluación de desempeño
+- [ ] Capacitaciones
+
+### Fase 6: Optimizaciones
+- [ ] Fix warning GoTrueClient
+- [ ] Cache de consultas
+- [ ] Performance improvements
+
+### Fase 7: Producción
+- [ ] Deploy en Vercel
+- [ ] Configuración de dominio
+- [ ] Backups automáticos
+- [ ] Monitoreo
+
+## 🛠️ Comandos Útiles
+
+```bash
+# Desarrollo
+npm run dev
+
+# Build
+npm run build
+
+# Commit y Push
+git add .
+git commit -m "descripción"
+git push origin main
+
+
+📝 Notas Importantes
+Incentivos se pagan a mes vencido (junio paga mayo)
+CBU requiere aprobación para cambios
+Notificaciones en tiempo real con Supabase Realtime
+Exportación Excel compatible con bancos argentinos
+Firma digital con canvas y almacenamiento en BD
+👨‍ Desarrollo
+Última actualización: 27/06/2026
+Versión: 1.0.0
+Estado: Producción
+
+
+
+---
+
+## 🔧 **PASO 2: Arreglar warning de GoTrueClient**
+
+**Reemplazá `lib/supabase.ts` (crealo si no existe):**
+
+```typescript
+import { createClient } from '@supabase/supabase-js'
+
+// Crear una única instancia global
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  }
+})
+
+Luego, en todos los archivos que usan createClient, reemplazá:
+// ANTES (en cada archivo):
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+// DESPUÉS:
+import { supabase } from '@/lib/supabase'
