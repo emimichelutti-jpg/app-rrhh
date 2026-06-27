@@ -64,6 +64,13 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             </Link>
 
             <Link
+              href="/admin/planillas"
+              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
+            >
+              📥 Planillas
+            </Link>
+
+            <Link
               href="/admin/dashboard"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >

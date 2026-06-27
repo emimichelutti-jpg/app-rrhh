@@ -86,35 +86,44 @@ export default function GestionSolicitudesPage() {
   }
 
   const aprobarSolicitud = async (cantidadCuotas: number) => {
-    if (!solicitudAProbar) return
-    setProcesando(true)
+  if (!solicitudAProbar) return
+  setProcesando(true)
 
-    try {
-      const montoCuota = solicitudAProbar.monto_total / cantidadCuotas
+  try {
+    const montoCuota = solicitudAProbar.monto_total / cantidadCuotas
 
-      const { error } = await supabase
-        .from('solicitudes_sueldo')
-        .update({
-          estado: cantidadCuotas > 1 ? 'en_curso' : 'aprobado',
-          cantidad_cuotas: cantidadCuotas,
-          cuotas_restantes: cantidadCuotas,
-          monto_cuota: montoCuota,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', solicitudAProbar.id)
+    const { error } = await supabase
+      .from('solicitudes_sueldo')
+      .update({
+        estado: cantidadCuotas > 1 ? 'en_curso' : 'aprobado',
+        cantidad_cuotas: cantidadCuotas,
+        cuotas_restantes: cantidadCuotas,
+        monto_cuota: montoCuota,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', solicitudAProbar.id)
 
-      if (error) throw error
+    if (error) throw error
 
-      alert('Solicitud aprobada correctamente')
-      setMostrarModalCuotas(false)
-      setSolicitudAProbar(null)
-      cargarSolicitudes()
-    } catch (error: any) {
-      alert('Error al aprobar: ' + error.message)
-    } finally {
-      setProcesando(false)
-    }
+    // CREAR NOTIFICACIÓN PARA EL EMPLEADO
+    await supabase.from('notificaciones').insert({
+      empleado_id: solicitudAProbar.empleado_id,
+      tipo: 'adelanto_aprobado',
+      titulo: '✅ Adelanto Aprobado',
+      mensaje: `Tu adelanto de $${solicitudAProbar.monto_total.toLocaleString('es-AR')} fue aprobado. ${cantidadCuotas > 1 ? `Se descontará en ${cantidadCuotas} cuotas de $${Math.round(montoCuota).toLocaleString('es-AR')}.` : 'Se descontará en tu próximo recibo.'}`,
+      leido: false
+    })
+
+    alert('Solicitud aprobada correctamente')
+    setMostrarModalCuotas(false)
+    setSolicitudAProbar(null)
+    cargarSolicitudes()
+  } catch (error: any) {
+    alert('Error al aprobar: ' + error.message)
+  } finally {
+    setProcesando(false)
   }
+}
 
   const handleRechazarClick = (solicitud: any) => {
     setSolicitudAProbar(solicitud)
@@ -123,35 +132,44 @@ export default function GestionSolicitudesPage() {
   }
 
   const rechazarSolicitud = async () => {
-    if (!solicitudAProbar || !motivoRechazo.trim()) {
-      alert('Debes ingresar un motivo de rechazo')
-      return
-    }
-
-    setProcesando(true)
-
-    try {
-      const { error } = await supabase
-        .from('solicitudes_sueldo')
-        .update({
-          estado: 'rechazado',
-          motivo_rechazo: motivoRechazo,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', solicitudAProbar.id)
-
-      if (error) throw error
-
-      alert('Solicitud rechazada')
-      setMostrarRechazo(false)
-      setSolicitudAProbar(null)
-      cargarSolicitudes()
-    } catch (error: any) {
-      alert('Error al rechazar: ' + error.message)
-    } finally {
-      setProcesando(false)
-    }
+  if (!solicitudAProbar || !motivoRechazo.trim()) {
+    alert('Debes ingresar un motivo de rechazo')
+    return
   }
+
+  setProcesando(true)
+
+  try {
+    const { error } = await supabase
+      .from('solicitudes_sueldo')
+      .update({
+        estado: 'rechazado',
+        motivo_rechazo: motivoRechazo,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', solicitudAProbar.id)
+
+    if (error) throw error
+
+    // CREAR NOTIFICACIÓN DE RECHAZO
+    await supabase.from('notificaciones').insert({
+      empleado_id: solicitudAProbar.empleado_id,
+      tipo: 'adelanto_rechazado',
+      titulo: '❌ Solicitud Rechazada',
+      mensaje: `Tu solicitud de adelanto por $${solicitudAProbar.monto_total.toLocaleString('es-AR')} fue rechazada. Motivo: ${motivoRechazo}`,
+      leido: false
+    })
+
+    alert('Solicitud rechazada')
+    setMostrarRechazo(false)
+    setSolicitudAProbar(null)
+    cargarSolicitudes()
+  } catch (error: any) {
+    alert('Error al rechazar: ' + error.message)
+  } finally {
+    setProcesando(false)
+  }
+}
 
   return (
     <div>
