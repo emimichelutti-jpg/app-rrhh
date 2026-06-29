@@ -52,7 +52,6 @@ export default function EmpleadoLayout({
     }
   }, [router, pathname])
 
-  // Cargar badge de notificaciones
   useEffect(() => {
     if (empleado) {
       cargarBadge()
@@ -114,72 +113,86 @@ export default function EmpleadoLayout({
   }
 
   const menuItems = [
-    { href: '/empleado/recibos', label: 'Mis Recibos', icon: '📄' },
-    { href: '/empleado/incentivos', label: 'Mis Incentivos', icon: '🎯' },
-    { href: '/empleado/dashboard', label: 'Mi Dashboard', icon: '📊' },
-    { href: '/empleado/notificaciones', label: 'Notificaciones', icon: '🔔' },
+    { href: '/empleado/recibos', label: 'Recibos', icon: '📄' },
+    { href: '/empleado/incentivos', label: 'Incentivos', icon: '🎯' },
+    { href: '/empleado/dashboard', label: 'Dashboard', icon: '📊' },
+    { href: '/empleado/datos-bancarios', label: 'Banco', icon: '🏦' },
+    { href: '/empleado/vacaciones', label: 'Vacaciones', icon: '🏖️' },
+    { href: '/empleado/notificaciones', label: 'Alertas', icon: '🔔' },
     { href: '/empleado/solicitudes', label: 'Solicitudes', icon: '💰' },
   ]
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
+      <header className="bg-white shadow-sm border-b sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-14 sm:h-16">
+            <div className="flex items-center min-w-0 flex-1">
               <div className="flex-shrink-0">
-                <h1 className="text-xl font-bold text-blue-600">Portal RRHH</h1>
+                <h1 className="text-base sm:text-xl font-bold text-blue-600 whitespace-nowrap">Portal RRHH</h1>
               </div>
-              <nav className="ml-10 flex space-x-4">
+              <nav className="ml-3 sm:ml-10 flex space-x-1 sm:space-x-2 overflow-x-auto scrollbar-hide">
                 {menuItems.map((item) => {
                   const isActive = pathname === item.href
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors relative ${
+                      className={`flex items-center px-2 sm:px-3 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap flex-shrink-0 ${
                         isActive
                           ? 'bg-blue-100 text-blue-700'
                           : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                       }`}
                     >
-                      <span className="mr-2">{item.icon}</span>
-                      {item.label}
-
-                      {item.href === '/empleado/notificaciones' && notificacionesNoLeidas > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                          {notificacionesNoLeidas > 9 ? '9+' : notificacionesNoLeidas}
-                        </span>
-                      )}
+                      <span className="mr-1 sm:mr-2 text-sm sm:text-base">{item.icon}</span>
+                      <span className="hidden sm:inline">{item.label}</span>
                     </Link>
                   )
                 })}
               </nav>
             </div>
 
-            <div className="flex items-center space-x-4">
+            <div className="hidden sm:flex items-center space-x-4 ml-4">
               <div className="text-right">
-                <p className="text-sm font-medium text-gray-900">
+                <p className="text-sm font-medium text-gray-900 truncate max-w-[150px]">
                   {empleado.nombre_completo || empleado.nombre}
                 </p>
                 <p className="text-xs text-gray-500">CUIL: {empleado.cuil}</p>
               </div>
               <button
                 onClick={cerrarSesion}
-                className="text-sm text-red-600 hover:text-red-800 underline"
+                className="text-sm text-red-600 hover:text-red-800 underline whitespace-nowrap"
               >
-                Cerrar Sesión
+                Salir
               </button>
             </div>
+
+            {/* Botón de cerrar sesión solo visible en móvil */}
+            <button
+              onClick={cerrarSesion}
+              className="sm:hidden text-sm text-red-600 hover:text-red-800 ml-2"
+            >
+              🚪
+            </button>
           </div>
         </div>
       </header>
 
       <NotificacionesPush />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
         {children}
       </main>
+
+      <style>{`
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
     </div>
   )
 }
