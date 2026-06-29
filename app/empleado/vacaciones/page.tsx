@@ -34,34 +34,34 @@ export default function VacacionesPage() {
     if (empleadoData) {
       const emp = JSON.parse(empleadoData)
       setEmpleado(emp)
-      cargarDatos(emp.id)
+      cargarDatos(emp)
     }
   }, [])
 
-  const cargarDatos = async (empleadoId: string) => {
+  const cargarDatos = async (emp: any) => {
     try {
       // Cargar solicitudes
       const { data: solicitudesData } = await supabase
         .from('solicitudes_vacaciones')
         .select('*')
-        .eq('empleado_id', empleadoId)
+        .eq('empleado_id', emp.id)
         .order('fecha_inicio', { ascending: false })
 
       setSolicitudes(solicitudesData || [])
 
       // Calcular días disponibles según antigüedad
-let dias = 14 // default por ley
+      let dias = 14 // default por ley
+      const hoy = new Date()
 
-if (empleado.fecha_ingreso) {
-  const fechaIngreso = new Date(empleado.fecha_ingreso)
-  const hoy = new Date()
-  const añosAntiguedad = hoy.getFullYear() - fechaIngreso.getFullYear()
+      if (emp.fecha_ingreso) {
+        const fechaIngreso = new Date(emp.fecha_ingreso)
+        const añosAntiguedad = hoy.getFullYear() - fechaIngreso.getFullYear()
 
-  if (añosAntiguedad >= 20) dias = 35
-  else if (añosAntiguedad >= 10) dias = 28
-  else if (añosAntiguedad >= 5) dias = 21
-}
-// Si no tiene fecha_ingreso, usa 14 días (mínimo por ley)
+        if (añosAntiguedad >= 20) dias = 35
+        else if (añosAntiguedad >= 10) dias = 28
+        else if (añosAntiguedad >= 5) dias = 21
+      }
+      // Si no tiene fecha_ingreso, usa 14 días (mínimo por ley)
 
       // Contar días usados (solo vacaciones aprobadas del año actual)
       const añoActual = hoy.getFullYear()
@@ -137,7 +137,7 @@ if (empleado.fecha_ingreso) {
       alert(`✅ Solicitud enviada correctamente (${cantidadDias} días)`)
       setMostrarFormulario(false)
       setNuevaSolicitud({ tipo: 'vacaciones', fecha_inicio: '', fecha_fin: '', motivo: '' })
-      cargarDatos(empleado.id)
+      cargarDatos(empleado)
     } catch (error: any) {
       alert('Error: ' + error.message)
     } finally {
@@ -185,7 +185,7 @@ if (empleado.fecha_ingreso) {
       </div>
 
       {/* Tarjetas de días disponibles */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
           <p className="text-sm text-gray-600">Días Disponibles (año)</p>
           <p className="text-3xl font-bold text-blue-900">{diasDisponibles}</p>
