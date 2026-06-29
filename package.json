@@ -11,6 +11,7 @@
     "restore": "node scripts/restore.js"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.62.0",
     "@supabase/supabase-js": "^2.106.2",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
