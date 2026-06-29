@@ -50,14 +50,18 @@ export default function VacacionesPage() {
       setSolicitudes(solicitudesData || [])
 
       // Calcular días disponibles según antigüedad
-      const fechaIngreso = new Date(empleado.fecha_ingreso)
-      const hoy = new Date()
-      const añosAntiguedad = hoy.getFullYear() - fechaIngreso.getFullYear()
+let dias = 14 // default por ley
 
-      let dias = 14
-      if (añosAntiguedad >= 20) dias = 35
-      else if (añosAntiguedad >= 10) dias = 28
-      else if (añosAntiguedad >= 5) dias = 21
+if (empleado.fecha_ingreso) {
+  const fechaIngreso = new Date(empleado.fecha_ingreso)
+  const hoy = new Date()
+  const añosAntiguedad = hoy.getFullYear() - fechaIngreso.getFullYear()
+
+  if (añosAntiguedad >= 20) dias = 35
+  else if (añosAntiguedad >= 10) dias = 28
+  else if (añosAntiguedad >= 5) dias = 21
+}
+// Si no tiene fecha_ingreso, usa 14 días (mínimo por ley)
 
       // Contar días usados (solo vacaciones aprobadas del año actual)
       const añoActual = hoy.getFullYear()
