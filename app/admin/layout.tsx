@@ -4,7 +4,6 @@ import Link from 'next/link'
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
@@ -25,7 +24,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       </header>
 
       <div className="flex">
-        {/* Sidebar */}
         <aside className="w-64 bg-white shadow-md min-h-screen p-4">
           <nav className="space-y-2">
             <Link
@@ -35,12 +33,37 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               👥 Gestionar Empleados
             </Link>
 
-            <Link
-              href="/admin/asistencia"
-              className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
-            >
-              🕒 Asistencia
-            </Link>
+            <div>
+              <div className="px-4 py-2 text-sm font-semibold text-gray-700">
+                🕒 Asistencia
+              </div>
+              <div className="pl-4 space-y-1">
+                <Link
+                  href="/admin/asistencia/registro"
+                  className="block px-4 py-2 text-gray-600 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors text-sm"
+                >
+                  📝 Registro Diario
+                </Link>
+                <Link
+                  href="/admin/asistencia/historial"
+                  className="block px-4 py-2 text-gray-600 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors text-sm"
+                >
+                  📊 Historial
+                </Link>
+                <Link
+                  href="/admin/asistencia/reportes"
+                  className="block px-4 py-2 text-gray-600 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors text-sm"
+                >
+                  📊 Reportes de Ausentismo
+                </Link>
+                <Link
+                  href="/admin/asistencia"
+                  className="block px-4 py-2 text-gray-600 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors text-sm"
+                >
+                  📥 Importar Excel (Fichaje)
+                </Link>
+              </div>
+            </div>
 
             <Link
               href="/admin/recibos"
@@ -104,19 +127,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               href="/admin/licencias"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
-              🏖️ Licencias
+              🏥 Licencias
             </Link>
 
             <Link
               href="/admin/reportes"
               className="block px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-md transition-colors"
             >
-              📈 Reportes
+              📈 Reportes Generales
             </Link>
           </nav>
         </aside>
 
-        {/* Main Content */}
         <main className="flex-1 p-8">
           {children}
         </main>

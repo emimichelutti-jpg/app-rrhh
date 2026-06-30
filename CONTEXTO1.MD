@@ -1258,6 +1258,10 @@ Aplicación web completa para gestión de Recursos Humanos con portal de emplead
 - [ ] Backups automáticos de PostgreSQL
 - [ ] Monitoreo con Sentry
 - [x] SSL/HTTPS ✅
+- [x] Monitoreo de errores con Sentry ✅
+  - Dashboard: https://sentry.io/organizations/app-rrhh/
+  - Proyecto: javascript-nextjs
+  - Tracing, Session Replay y Logs habilitados
 
 ## ️ Comandos Útiles
 
