@@ -127,7 +127,7 @@ export default function FirmaDigital({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto">
-        <div className="bg-blue-600 text-white px-6 py-4 rounded-t-lg">
+        <div className="bg-slate-800 text-white px-6 py-4 rounded-t-lg">
           <h2 className="text-xl font-bold">✍️ Firma Digital de Recibo</h2>
           <p className="text-sm text-blue-100">Ley 17250 - Art. 12</p>
         </div>
@@ -203,7 +203,7 @@ export default function FirmaDigital({
             <button
               onClick={confirmarFirma}
               disabled={!firmaCompleta || !tieneTrazo}
-              className="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              className="flex-1 bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               ✅ Confirmar Firma
             </button>

@@ -1,0 +1,214 @@
+# CONTEXTO DEL PROYECTO - App RRHH Movilsat
+
+## 📋 Descripción General
+Sistema de gestión de Recursos Humanos para Movilsat Comunicaciones SA con:
+- Portal de empleados (recibos de sueldo, firma digital, adelantos, vacaciones)
+- Panel de administración (carga de recibos, gestión de empleados, reportes)
+- Backend Python para extracción de datos de PDFs
+- Base de datos Supabase
+
+## 🏗️ Arquitectura
+
+### Frontend
+- **Framework:** Next.js 16.2.7 con Turbopack
+- **Lenguaje:** TypeScript
+- **UI:** Tailwind CSS
+- **Autenticación:** Supabase Auth
+- **Rutas principales:**
+  - `/admin/*` - Panel de administración
+  - `/empleado/*` - Portal del empleado
+  - `/api/*` - Endpoints de API
+
+### Backend Python
+- **Framework:** FastAPI
+- **Ubicación:** `C:\Users\Usuario\backend-extractor`
+- **Puerto:** 8000
+- **Función principal:** Extraer datos de PDFs de recibos de sueldo
+- **Endpoint:** `POST /extraer-lote-recibos`
+
+### Base de Datos
+- **Proveedor:** Supabase (PostgreSQL)
+- **Tablas principales:**
+  - `empleados` - Datos de empleados
+  - `recibos_sueldo` - Recibos de sueldo
+  - `solicitudes_sueldo` - Adelantos/préstamos
+  - `vacaciones` - Control de vacaciones
+  - `notificaciones` - Notificaciones push
+
+## 📊 Estructura de Datos
+
+### Tabla: recibos_sueldo
+```sql
+CREATE TABLE recibos_sueldo (
+  id UUID PRIMARY KEY,
+  empleado_id UUID REFERENCES empleados(id),
+  cuil TEXT,
+  periodo TEXT,           -- Formato: YYYY-MM (ej: 2026-07)
+  quincena TEXT,          -- '1ra', '2da', 'N/A'
+  tipo_recibo TEXT,       -- 'normal', 'sac_1ra', 'sac_2da', 'vacaciones', 'bono'
+  neto_a_cobrar NUMERIC,
+  total_haberes NUMERIC,
+  sueldo_bruto NUMERIC,
+  costo_total_empleador NUMERIC,     -- NUEVO (Ley 27802)
+  aportes_trabajador NUMERIC,        -- NUEVO (Ley 27802)
+  contribuciones_empleador NUMERIC,  -- NUEVO (Ley 27802)
+  legajo TEXT,
+  pdf_original_url TEXT,
+  pagina_recibo INTEGER,  -- Página donde está este recibo en el PDF
+  estado TEXT,            -- 'pendiente', 'firmado', 'anulado'
+  estado_firma TEXT,      -- 'pendiente', 'firmado'
+  fecha_firma TIMESTAMP,
+  firma_imagen_url TEXT,
+  firma_hash TEXT,
+  ip_firma TEXT,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP
+);
+
+
+🔄 Flujo de Carga de Recibos
+Admin sube PDF(s) desde /admin/cargar-recibos
+Archivos se suben a Supabase Storage (bucket: recibos-originales)
+Se envían al backend Python vía /api/admin/procesar-recibo-url
+Backend extrae datos de cada página/recibo
+Next.js procesa los datos y crea empleados si no existen
+Se guardan en BD con upsert (evita duplicados)
+Cada empleado recibe su recibo individual
+🔐 Autenticación
+Admin
+Login: /admin/login
+Credenciales: Email/password de Supabase
+Rol: 'admin' en tabla empleados
+Empleado
+Login: Automático vía localStorage (empleado_id)
+Datos: Se guardan en localStorage.getItem('empleado_data')
+Acceso: Solo a sus propios datos
+📝 Firma Digital
+Ley: 17250 (Argentina)
+Flujo:
+Empleado firma en canvas (FirmaDigital.tsx)
+Se convierte a base64
+Se envía a /api/recibos/firmar
+Se valida que no haya recibos anteriores pendientes
+Se guarda firma + hash SHA-256
+Se actualiza estado y estado_firma a 'firmado'
+📄 Visualización de Recibos
+Funcionamiento CORRECTO (Junio 2026)
+Cada empleado ve SOLO su recibo individual
+El modal muestra el PDF en la página correspondiente
+Se usa el campo pagina_recibo para saltar a la página correcta
+Problema ACTUAL (Julio 2026)
+Los nuevos recibos muestran el lote completo
+Posible causa: pagina_recibo no se está guardando correctamente
+O: El PDF original_url apunta al lote en lugar del individual
+🆕 Nueva Ley 27802 (Julio 2026)
+Cambios en recibos:
+Costo Total Empleador - Costo total para la empresa
+Aportes del Trabajador - Descuentos del empleado
+Contribuciones del Empleador - Aportes de la empresa
+Composición Salarial Detallada - Desglose completo
+Campos nuevos en BD:
+sueldo_bruto
+costo_total_empleador
+aportes_trabajador
+contribuciones_empleador
+Métricas de Productividad (En Desarrollo)
+Futuro módulo incluirá:
+ROI del Empleado: (Facturación - Costo) / Costo
+Índice de Productividad: Facturación / Costo Total
+Margen de Contribución: Facturación - Costo Total
+Filtros por período, zona, empleado
+Tabla propuesta: facturacion_empleado
+
+
+
+
+CREATE TABLE facturacion_empleado (
+  id UUID PRIMARY KEY,
+  empleado_id UUID REFERENCES empleados(id),
+  periodo TEXT,
+  monto_facturado NUMERIC,
+  horas_facturables NUMERIC,
+  proyecto_cliente TEXT,
+  created_at TIMESTAMP
+);
+
+app-rrhh/
+├── app/
+│   ├── admin/
+│   │   ├── cargar-recibos/page.tsx
+│   │   ├── recibos/page.tsx
+│   │   └── login/page.tsx
+│   ├── empleado/
+│   │   ├── recibos/page.tsx          ← Visualización de recibos
+│   │   ├── recibos/FirmaDigital.tsx  ← Componente de firma
+│   │   ── dashboard/page.tsx
+│   └── api/
+│       ├── admin/procesar-recibo-url/route.ts  ← Procesamiento de PDFs
+│       └── recibos/firmar/route.ts             ← Endpoint de firma
+── backend-extractor/
+│   └── main.py                        ← Extracción de PDFs
+── contexto.md                        ← Este archivo
+
+
+
+🐛 Problemas Conocidos
+Visualización de PDFs (Julio 2026):
+Los nuevos recibos muestran el lote completo en lugar del individual
+Los de junio funcionan correctamente
+Posible causa: pagina_recibo no se guarda correctamente
+Workspaces de Next.js:
+Warning de múltiples lockfiles
+Solución: Agregar turbopack.root en next.config.js
+GoTrueClient instances:
+Warning de múltiples instancias de Supabase
+No es crítico pero debería centralizarse
+🚀 Comandos Útiles
+Backend Python
+
+cd C:\Users\Usuario\backend-extractor
+.\venv\Scripts\Activate.ps1
+python main.py
+
+Frontend Next.js
+cd C:\Users\Usuario\app-rrhh
+npm run dev
+
+SQL - Ver últimos recibos cargados
+SELECT 
+  id,
+  empleados.nombre_completo,
+  periodo,
+  quincena,
+  tipo_recibo,
+  pagina_recibo,
+  SUBSTRING(pdf_original_url FROM 1 FOR 100) as url
+FROM recibos_sueldo
+ORDER BY created_at DESC
+LIMIT 10;
+
+Notas Importantes
+Período forzado: Al cargar recibos, se puede especificar manualmente el período (YYYY-MM)
+Zonas/Plantas: Mar del Plata, Mendoza, Moreno, San Juan (campo opcional en carga)
+Duplicados: El sistema usa upsert con conflicto en (empleado_id, periodo, quincena, tipo_recibo)
+Firma secuencial: No se puede firmar un recibo si hay anteriores pendientes
+Anulación: Solo se puede anular dentro de las 24hs de firmado
+🔧 Configuración de Entorno
+Variables requeridas (.env.local)
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=xxx
+SUPABASE_SERVICE_ROLE_KEY=xxx
+BACKEND_URL=http://localhost:8000
+
+
+
+---
+
+##  Próximo paso
+
+Con este contexto, ¿querés:
+
+1. **Seguir acá** y diagnosticar por qué julio muestra el lote completo (ejecutar el SQL que te pasé arriba)
+2. **Empezar de nuevo en otro chat** con este `contexto.md` actualizado
+
+Decime y seguimos. 

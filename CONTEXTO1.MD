@@ -1315,3 +1315,353 @@ git commit -m "docs: Actualización CONTEXTO.md con módulo de Vacaciones
 - Roadmap actualizado"
 
 git push origin main
+
+
+
+
+# Contexto del Proyecto - Movilsat RRHH
+
+## Estado actual (10/07/2026)
+- Framework: Next.js 16.2.7 con Turbopack
+- Base de datos: Supabase (PostgreSQL)
+- Backend Python: http://localhost:8000 (extracción de PDFs)
+
+## Estructura de datos clave
+- `empleados`: tiene campos `zona_id`, `tipo_pago`, `cuil`, `nombre_completo`, `cbu`, `alias_cbu`
+- `zonas`: tabla con 4 zonas (Mar del Plata, Mendoza, Moreno, San Juan)
+- `recibos_sueldo`: tiene campo `tipo_recibo` (normal, sac_1ra, sac_2da, vacaciones, bono)
+- `recibos_sueldo` NO tiene campo `banco` (está en `recibos_sueldo.banco` directo)
+
+## Problemas conocidos
+- Endpoint `/api/admin/procesar-recibo-url/route.ts` tiene error de sintaxis → recrear desde cero
+- Constraints únicas en `recibos_sueldo` necesitan limpieza
+
+## Funcionalidades implementadas
+- [x] Carga masiva de recibos PDF con tipo_recibo
+- [x] Planillas con filtros (período, quincena, zona, tipo_recibo, tipo_pago)
+- [x] Legajo 360° muestra recibos en tab "Ingresos"
+- [x] Exportación Excel/CSV con nombres y apellidos
+
+## Funcionalidades pendientes
+- [ ] Arreglar endpoint de carga de recibos
+- [ ] Probar carga de SAC sin conflictos
+- [ ] Filtros por zona en Legajo 360°
+- [ ] Dashboard con métricas por zona
+
+
+# Contexto del Proyecto - Movilsat RRHH
+
+**Última actualización:** 10/07/2026
+
+---
+
+##  Información General
+
+Sistema de gestión de Recursos Humanos para **Movilsat**. Permite gestionar empleados, cargar recibos de sueldo desde PDFs, generar planillas para transferencias bancarias, y llevar control de asistencia, ausencias, incentivos y más.
+
+---
+
+## 🛠️ Stack Tecnológico
+
+| Tecnología | Versión/Detalle |
+|-----------|-----------------|
+| Framework | Next.js 16.2.7 (Turbopack) |
+| Lenguaje | TypeScript |
+| Base de datos | Supabase (PostgreSQL) |
+| Autenticación | Supabase Auth (GoTrue) |
+| Storage | Supabase Storage (`recibos-originales`) |
+| Backend Python | http://localhost:8000 (extracción de PDFs) |
+| UI | Tailwind CSS + React |
+| Exportación | librería `xlsx` (SheetJS) |
+
+---
+
+## ️ Estructura de Base de Datos
+
+### Tabla `empleados`
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | UUID | Primary key |
+| `nombre_completo` | TEXT | Nombre completo del empleado |
+| `cuil` | TEXT | CUIT/CUIL (sin guiones) |
+| `dni` | TEXT | Documento de identidad |
+| `email` | TEXT | Email corporativo |
+| `email_personal` | TEXT | Email personal |
+| `telefono` | TEXT | Teléfono |
+| `domicilio` | TEXT | Dirección |
+| `localidad` | TEXT | Localidad |
+| `provincia` | TEXT | Provincia |
+| `codigo_postal` | TEXT | CP |
+| `fecha_nacimiento` | DATE | Fecha de nacimiento |
+| `genero` | TEXT | Género |
+| `estado_civil` | TEXT | Estado civil |
+| `nacionalidad` | TEXT | Nacionalidad |
+| `cargo` | TEXT | Cargo/puesto |
+| `departamento_id` | UUID | FK → departamentos |
+| `fecha_ingreso` | DATE | Fecha de ingreso |
+| `tipo_contrato` | TEXT | Tipo de contrato |
+| `tipo_pago` | TEXT | `'quincenal'` o `'mensual'` |
+| `jornada_laboral` | TEXT | Jornada |
+| `jornada_horas` | NUMERIC | Horas diarias |
+| `periodo_prueba_hasta` | DATE | Fin período de prueba |
+| `dias_vacaciones_disponibles` | INTEGER | Días disponibles |
+| `convenio_colectivo` | TEXT | CCT |
+| `categoria_sindical` | TEXT | Categoría |
+| `estado` | TEXT | `'activo'` o `'inactivo'` |
+| `zona_id` | UUID | FK → zonas |
+| `cuenta_banco` | TEXT | Banco |
+| `cbu` | TEXT | CBU |
+| `alias_cbu` | TEXT | Alias CBU |
+| `nombre_conyuge` | TEXT | Cónyuge |
+| `hijos_a_cargo` | INTEGER | Hijos |
+| `contacto_emergencia_nombre` | TEXT | Contacto emergencia |
+| `contacto_emergencia_telefono` | TEXT | Tel. emergencia |
+| `contacto_emergencia_relacion` | TEXT | Relación |
+| `obra_social` | TEXT | Obra social |
+| `numero_afiliado` | TEXT | N° afiliado |
+| `activo` | BOOLEAN | Activo (legacy) |
+| `rol` | TEXT | Rol (legacy) |
+
+**⚠️ IMPORTANTE:** La tabla `empleados` **NO tiene** el campo `banco`. El banco está en `cuenta_banco`.
+
+### Tabla `zonas`
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | UUID | Primary key |
+| `nombre` | TEXT | Nombre de la zona |
+| `descripcion` | TEXT | Descripción |
+| `activo` | BOOLEAN | Activa o no |
+| `creada_en` | TIMESTAMP | Fecha de creación |
+
+**Zonas existentes:**
+- Mar del Plata (`5b1785c9-eba9-41a9-9d4f-5e09306a2f7f`)
+- Mendoza (`6f51a896-7413-47ce-b68f-8611cb805999`)
+- Moreno (`04c5534e-bdad-400e-b85f-2e7de2bd909a`)
+- San Juan (`70afad5a-146c-444b-b35a-4223600a32fd`)
+
+**Estado actual:** Los 86 empleados activos están asignados a "Mar del Plata".
+
+### Tabla `recibos_sueldo`
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | UUID | Primary key |
+| `empleado_id` | UUID | FK → empleados |
+| `cuil` | TEXT | CUIL del empleado |
+| `periodo` | TEXT | Formato `YYYY-MM` (ej: `2026-06`) |
+| `quincena` | TEXT | `'1ra'` o `'2da'` |
+| `tipo_recibo` | TEXT | `'normal'`, `'sac_1ra'`, `'sac_2da'`, `'vacaciones'`, `'bono'` |
+| `neto_a_cobrar` | NUMERIC | Neto a cobrar |
+| `monto_bruto` | NUMERIC | Bruto |
+| `total_descuentos` | NUMERIC | Total descuentos |
+| `total_haberes` | NUMERIC | Total haberes |
+| `legajo` | TEXT | N° de legajo |
+| `seccion` | TEXT | Sección |
+| `categoria` | TEXT | Categoría |
+| `banco` | TEXT | Banco (SÍ existe en recibos_sueldo) |
+| `numero_recibo` | TEXT | N° de recibo |
+| `pdf_original_url` | TEXT | URL del PDF en storage |
+| `pagina_recibo` | INTEGER | Página del recibo |
+| `estado` | TEXT | `'pendiente'`, `'firmado'`, `'anulado'` |
+| `estado_firma` | TEXT | Estado de firma |
+| `nombre_completo` | TEXT | Nombre (puede estar vacío) |
+
+**⚠️ IMPORTANTE:** 
+- `recibos_sueldo` SÍ tiene el campo `banco`
+- `recibos_sueldo` NO tiene todos los datos del empleado (nombre, cbu, alias_cbu). Esos se buscan en la tabla `empleados` por CUIL.
+
+### Otras tablas relevantes
+- `departamentos`: Departamentos/áreas
+- `incentivos`: Incentivos por empleado
+- `solicitudes`: Adelantos y préstamos
+- `solicitudes_vacaciones`: Solicitudes de vacaciones
+- `registros_asistencia`: Registros de asistencia diaria
+
+---
+
+## 📁 Estructura de Archivos Clave
+
+app/
+├── admin/
+│ ├── cargar-recibos/
+│ │ └── page.tsx ← Carga masiva de PDFs con selector de tipo_recibo
+│ ├── empleados/
+│ │ ├── page.tsx ← Lista de empleados
+│ │ └── [id]/
+│ │ └── page.tsx ← Legajo 360° (tabs: personal, contacto, laboral, ingresos, etc.)
+│ ├── planillas/
+│ │ ── page.tsx ← Generación de planillas con filtros
+│ ├── recibos/
+│ │ └── page.tsx ← Lista de recibos de sueldo
+│ └── dashboard/
+│ └── page.tsx ← Dashboard principal
+└── api/
+└── admin/
+└── procesar-recibo-url/
+└── route.ts ← ⚠️ TIENE ERROR DE SINTAXIS - RECREAR
+
+
+---
+
+## ✅ Funcionalidades Implementadas
+
+### 1. Planillas (Exportación) - `app/admin/planillas/page.tsx`
+- ✅ Filtros: Período, Quincena, Zona, Tipo de Recibo, Tipo de Pago
+- ✅ Búsqueda de empleados por CUIL normalizado (sin guiones)
+- ✅ Exportación Excel (3 hojas: Sueldos, Incentivos, Resumen)
+- ✅ Exportación Formato Banco (CBU + Monto)
+- ✅ Exportación CSV simple
+- ✅ Vista previa con badges de colores por tipo de recibo
+- ✅ Nombres y apellidos se exportan correctamente
+
+### 2. Legajo 360° - `app/admin/empleados/[id]/page.tsx`
+- ✅ Tabs: Personal, Contacto, Laboral, Familia, Bancario, Emergencia, Salud, Ingresos, Incentivos, Descuentos, Ausencias, Asistencia, Performance
+- ✅ Tab "Ingresos" muestra recibos buscando por `cuil` en `recibos_sueldo`
+- ✅ Muestra período, quincena, sección, bruto, descuentos, neto, estado
+- ✅ Cálculo de total percibido usando `neto_a_cobrar`
+
+### 3. Carga de Recibos - `app/admin/cargar-recibos/page.tsx`
+- ✅ Selector de Tipo de Recibo (Normal, SAC 1ra, SAC 2da, Vacaciones, Bono)
+- ✅ Carga masiva de PDFs
+- ✅ Envío de `tipo_recibo` al endpoint
+
+### 4. Base de Datos
+- ✅ Campo `tipo_recibo` en `recibos_sueldo` (default: `'normal'`)
+- ✅ Tabla `zonas` con 4 zonas
+- ✅ Campo `zona_id` en `empleados`
+- ✅ Campo `tipo_pago` en `empleados`
+
+---
+
+## ⚠️ Problemas Conocidos
+
+### 1. Endpoint de carga de recibos - CRÍTICO
+**Archivo:** `app/api/admin/procesar-recibo-url/route.ts`
+**Problema:** Error de sintaxis (llaves sin cerrar). La página de carga de recibos no funciona.
+**Solución:** Recrear el archivo desde cero con el código proporcionado en la última sesión.
+
+### 2. Constraints únicas en `recibos_sueldo`
+**Problema:** Hay 3 constraints UNIQUE, dos duplicadas y una muy restrictiva.
+**Estado actual:** Se eliminaron parcialmente, pero hay que verificar.
+**Constraint correcta necesaria:**
+```sql
+UNIQUE (empleado_id, periodo, quincena, tipo_recibo)
+
+
+3. Campo banco en tabla empleados
+Problema: La tabla empleados NO tiene el campo banco. Está en cuenta_banco.
+Impacto: Las consultas que buscan banco en empleados fallan con error 400.
+Solución aplicada: No buscar banco en empleados, usar recibo.banco directamente.
+
+
+🔄 Flujo de Datos - Carga de Recibos
+
+1. Usuario selecciona Tipo de Recibo (normal, sac_1ra, etc.)
+2. Usuario selecciona PDFs
+3. Frontend sube PDFs a Supabase Storage (`recibos-originales`)
+4. Frontend envía URLs al endpoint `/api/admin/procesar-recibo-url`
+5. Endpoint descarga PDFs y los envía al backend Python
+6. Backend Python extrae datos (nombre, cuil, período, quincena, montos)
+7. Endpoint normaliza CUILs (quita guiones)
+8. Endpoint busca empleados por CUIL en tabla `empleados`
+9. Si no existe, crea empleado nuevo
+10. Endpoint hace upsert en `recibos_sueldo` con `tipo_recibo`
+11. Frontend muestra resultados
+
+🔄 Flujo de Datos - Generación de Planillas
+
+1. Usuario selecciona filtros (período, quincena, zona, tipo_recibo, tipo_pago)
+2. Frontend carga empleados y filtra por zona y tipo_pago
+3. Frontend carga recibos filtrando por CUILs de empleados filtrados
+4. Frontend crea mapa de empleados por CUIL normalizado
+5. Frontend asigna empleado a cada recibo
+6. Usuario ve vista previa
+7. Usuario exporta Excel/CSV/Banco
+
+📝 Decisiones de Arquitectura
+Normalización de CUIL
+Los CUILs se almacenan sin guiones en la base de datos
+Al buscar, se normalizan: String(cuil).replace(/[-\s]/g, '')
+Esto permite matching aunque vengan con formatos diferentes
+Búsqueda de empleados
+Los recibos NO tienen empleado_id confiable para buscar datos del empleado
+Se busca el empleado por CUIL en la tabla empleados
+Se crea un Map para búsqueda rápida O(1)
+Tipo de recibo
+Permite tener múltiples recibos para el mismo empleado en el mismo período
+Ej: Un empleado puede tener sueldo normal + SAC en el mismo mes
+La constraint única incluye tipo_recibo para permitir esto
+🎯 Funcionalidades Pendientes
+Alta Prioridad
+Recrear endpoint procesar-recibo-url/route.ts desde cero
+Verificar y limpiar constraints en recibos_sueldo
+Probar carga de SAC con PDFs reales
+Media Prioridad
+Agregar filtro por zona en Legajo 360°
+Mostrar tipo de recibo en página "Recibos de Sueldo"
+Dashboard con métricas por zona
+Editar tipo de recibo en recibos existentes
+Baja Prioridad
+Módulo de Performance (facturación, ICN, IRC)
+Notificaciones por email
+Firma digital de recibos
+Reportes avanzados
+🔧 Comandos Útiles
+Ver constraints de una tabla
+
+SELECT conname, conrelid::regclass, pg_get_constraintdef(oid)
+FROM pg_constraint
+WHERE conrelid = 'recibos_sueldo'::regclass
+AND contype = 'u';
+
+Ver índices UNIQUE
+SELECT indexname, indexdef 
+FROM pg_indexes 
+WHERE tablename = 'recibos_sueldo' 
+AND indexdef LIKE '%UNIQUE%';
+
+Ver campos de una tabla
+
+SELECT column_name 
+FROM information_schema.columns 
+WHERE table_name = 'empleados' 
+ORDER BY ordinal_position;
+
+Ver valores únicos de un campo
+SELECT DISTINCT tipo_pago FROM empleados WHERE tipo_pago IS NOT NULL;
+SELECT DISTINCT zona FROM empleados WHERE zona IS NOT NULL;
+SELECT DISTINCT tipo_recibo FROM recibos_sueldo WHERE tipo_recibo IS NOT NULL;
+
+📌 Notas Importantes
+Siempre normalizar CUILs antes de comparar (quitar guiones y espacios)
+No buscar banco en tabla empleados (no existe, está en cuenta_banco)
+Los recibos no tienen todos los datos del empleado → buscar por CUIL
+El backend Python corre en http://localhost:8000 y expone /extraer-lote-recibos
+Supabase Storage usa el bucket recibos-originales para PDFs
+Next.js 16.2.7 usa Turbopack en desarrollo (puede haber errores raros de caché)
+Próximos Pasos (Sesión Siguiente)
+Recrear app/api/admin/procesar-recibo-url/route.ts desde cero
+Verificar que compile sin errores
+Probar carga de 1-2 PDFs de SAC
+Verificar que Planillas filtre correctamente por tipo_recibo
+Limpiar constraints duplicadas en recibos_sueldo si es necesario
+Contacto y Recursos
+Supabase Dashboard: https://app.supabase.com/project/cedyswirmsccigfoqlff
+Backend Python: http://localhost:8000/docs (Swagger)
+Repositorio: Local en C:\Users\Usuario\app-rrhh
+
+
+---
+
+## ✅ **Listo!**
+
+El archivo `contexto.md` está completo y actualizado con:
+- ✅ Toda la estructura de la base de datos
+- ✅ Funcionalidades implementadas
+- ✅ Problemas conocidos y soluciones
+- ✅ Flujos de datos
+- ✅ Decisiones de arquitectura
+- ✅ Próximos pasos
+
+**Guardalo en la raíz del proyecto** (`C:\Users\Usuario\app-rrhh\contexto.md`) y la próxima vez que arranques, vas a tener todo el contexto listo para continuar. 🚀
+
+¡Buen trabajo hoy! Descansá y cuando vuelvas, arrancamos frescos con el endpoint. 💪

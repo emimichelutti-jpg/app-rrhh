@@ -1,521 +1,517 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line
-} from 'recharts'
+import { supabase } from '@/lib/supabaseClient'
 import * as XLSX from 'xlsx'
 
-const ESTADOS_ASISTENCIA = [
-  { value: 'presente', label: 'Presente', color: '#10b981' },
-  { value: 'ausente_injustificado', label: 'Ausente Injust.', color: '#ef4444' },
-  { value: 'ausente_justificado', label: 'Ausente Just.', color: '#eab308' },
-  { value: 'tarde', label: 'Tarde', color: '#f97316' },
-  { value: 'permiso', label: 'Permiso', color: '#3b82f6' },
-  { value: 'vacaciones', label: 'Vacaciones', color: '#06b6d4' },
-  { value: 'licencia_medica', label: 'Lic. Médica', color: '#a855f7' },
-  { value: 'ilt', label: 'ILT (ART)', color: '#dc2626' },
-  { value: 'licencia_familiar', label: 'Lic. Familiar', color: '#9333ea' },
-  { value: 'feriado', label: 'Feriado', color: '#6b7280' },
-]
-
-const COLORES = ['#10b981', '#ef4444', '#eab308', '#f97316', '#3b82f6', '#06b6d4', '#a855f7', '#dc2626', '#9333ea', '#6b7280']
-
-export default function ReportesAsistenciaPage() {
+export default function PlanillasPage() {
+  const [periodo, setPeriodo] = useState('')
+  const [quincena, setQuincena] = useState('todas')
   const [empleados, setEmpleados] = useState<any[]>([])
-  const [registros, setRegistros] = useState<any[]>([])
+  const [recibos, setRecibos] = useState<any[]>([])
+  const [incentivos, setIncentivos] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  const [fechaDesde, setFechaDesde] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
-  const [fechaHasta, setFechaHasta] = useState(new Date().toISOString().split('T')[0])
-  const [filtroZona, setFiltroZona] = useState('todas')
-  const [filtroEstado, setFiltroEstado] = useState('todos')
-  const [vistaActiva, setVistaActiva] = useState<'resumen' | 'empleados' | 'zonas'>('resumen')
+  const [vistaPrevia, setVistaPrevia] = useState(false)
 
   useEffect(() => {
     cargarEmpleados()
+    const ahora = new Date()
+    setPeriodo(`${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}`)
   }, [])
 
   useEffect(() => {
-    if (empleados.length > 0) {
-      cargarReportes()
+    if (periodo) {
+      cargarDatos()
     }
-  }, [fechaDesde, fechaHasta, filtroZona, filtroEstado])
+  }, [periodo, quincena])
 
   const cargarEmpleados = async () => {
     const { data } = await supabase
       .from('empleados')
-      .select('id, nombre_completo, cuil, seccion, zona')
-      .eq('activo', true)
+      .select('id, nombre_completo, cuil, cbu, alias_cbu, banco')
+      .eq('estado', 'activo')
       .order('nombre_completo')
-
-    setEmpleados(data || [])
+    if (data) setEmpleados(data)
   }
 
-  const cargarReportes = async () => {
+  const cargarDatos = async () => {
     setLoading(true)
-    
-    let query = supabase
-      .from('registros_asistencia')
-      .select('*, empleados(id, nombre_completo, cuil, seccion, zona)')
-      .gte('fecha', fechaDesde)
-      .lte('fecha', fechaHasta)
-      .order('fecha', { ascending: false })
+    try {
+      // Cargar recibos
+      let queryRecibos = supabase
+        .from('recibos_sueldo')
+        .select('*')
+        .eq('periodo', periodo)
+        .neq('estado', 'anulado')
 
-    if (filtroZona !== 'todas') {
-      query = query.eq('empleados.zona', filtroZona)
-    }
+      if (quincena !== 'todas') {
+        queryRecibos = queryRecibos.eq('quincena', quincena)
+      }
 
-    if (filtroEstado !== 'todos') {
-      query = query.eq('estado', filtroEstado)
-    }
+      const { data: recibosData, error: errorRecibos } = await queryRecibos
 
-    const { data } = await query
+      // Cargar incentivos
+      const { data: incentivosData, error: errorIncentivos } = await supabase
+        .from('incentivos')
+        .select('*')
+        .eq('periodo', periodo)
 
-    setRegistros(data || [])
-    setLoading(false)
-  }
+      console.log('Recibos cargados:', recibosData?.length || 0)
+      console.log('Incentivos cargados:', incentivosData?.length || 0)
+      
+      if (errorRecibos) console.error('Error en recibos:', errorRecibos)
+      if (errorIncentivos) console.error('Error en incentivos:', errorIncentivos)
 
-  // Zonas únicas
-  const zonas = [...new Set(empleados.map(e => e.zona).filter(Boolean))]
+      // Cargar TODOS los empleados activos
+      const { data: todosEmpleados } = await supabase
+        .from('empleados')
+        .select('id, nombre_completo, cuil, cbu, alias_cbu, banco')
+        .eq('estado', 'activo')
 
-  // Estadísticas generales
-  const estadisticas = {
-    totalRegistros: registros.length,
-    presentes: registros.filter(r => r.estado === 'presente').length,
-    ausentes: registros.filter(r => r.estado?.startsWith('ausente')).length,
-    tardes: registros.filter(r => r.estado === 'tarde').length,
-    permisos: registros.filter(r => r.estado === 'permiso').length,
-    vacaciones: registros.filter(r => r.estado === 'vacaciones').length,
-    licencias: registros.filter(r => r.estado === 'licencia_medica').length,
-    ilt_art: registros.filter(r => r.estado === 'ilt').length,
-    licencias_familiar: registros.filter(r => r.estado === 'licencia_familiar').length,
-    feriados: registros.filter(r => r.estado === 'feriado').length,
-    horasTotales: registros.reduce((acc, r) => acc + (parseFloat(r.horas_trabajadas) || 0), 0),
-  }
+      console.log('=== DEBUG CARGA DE DATOS ===')
+      console.log('Total empleados cargados:', todosEmpleados?.length)
+      console.log('Primer empleado:', todosEmpleados?.[0])
+      console.log('Primer recibo antes del mapeo:', recibosData?.[0])
+      console.log('CUIL del primer recibo:', recibosData?.[0]?.cuil)
 
-  // Datos para gráfico de torta (distribución de estados)
-  const datosTorta = ESTADOS_ASISTENCIA.map(e => ({
-    name: e.label,
-    value: registros.filter(r => r.estado === e.value).length,
-    color: e.color,
-  })).filter(d => d.value > 0)
-
-  // Datos para gráfico de barras (por día)
-  const registrosPorDia = registros.reduce((acc: any, r) => {
-    const fecha = r.fecha
-    if (!acc[fecha]) {
-      acc[fecha] = { fecha, presentes: 0, ausentes: 0, tardes: 0, otros: 0 }
-    }
-    if (r.estado === 'presente') acc[fecha].presentes++
-    else if (r.estado?.startsWith('ausente')) acc[fecha].ausentes++
-    else if (r.estado === 'tarde') acc[fecha].tardes++
-    else acc[fecha].otros++
-    return acc
-  }, {})
-
-  const datosBarras = Object.values(registrosPorDia)
-    .sort((a: any, b: any) => a.fecha.localeCompare(b.fecha))
-    .slice(-30) // Últimos 30 días
-
-  // Ranking de empleados con más ausencias
-  const ausenciasPorEmpleado = registros
-    .filter(r => r.estado?.startsWith('ausente') || r.estado === 'tarde' || r.estado === 'ilt')
-    .reduce((acc: any, r) => {
-      const empId = r.empleado_id
-      if (!acc[empId]) {
-        acc[empId] = {
-          nombre: r.empleados?.nombre_completo || 'Desconocido',
-          zona: r.empleados?.zona || 'Sin zona',
-          ausencias: 0,
-          tardes: 0,
-          ilt: 0,
-          total: 0,
+      // Crear mapa por CUIL
+      const empleadosPorCuil = new Map()
+      todosEmpleados?.forEach(emp => {
+        if (emp.cuil) {
+          empleadosPorCuil.set(emp.cuil, emp)
         }
-      }
-      if (r.estado?.startsWith('ausente')) acc[empId].ausencias++
-      if (r.estado === 'tarde') acc[empId].tardes++
-      if (r.estado === 'ilt') acc[empId].ilt++
-      acc[empId].total++
-      return acc
-    }, {})
+      })
 
-  const rankingEmpleados = Object.values(ausenciasPorEmpleado)
-    .sort((a: any, b: any) => b.total - a.total)
-    .slice(0, 20)
+      console.log('Tamaño del mapa empleadosPorCuil:', empleadosPorCuil.size)
+      console.log('¿Existe el CUIL del primer recibo en el mapa?', empleadosPorCuil.has(recibosData?.[0]?.cuil))
+      
+      // Listar algunos CUILs del mapa para comparar
+      console.log('Primeros 5 CUILs en el mapa:', Array.from(empleadosPorCuil.keys()).slice(0, 5))
 
-  // Estadísticas por zona
-  const estadisticasPorZona = registros.reduce((acc: any, r) => {
-    const zona = r.empleados?.zona || 'Sin zona'
-    if (!acc[zona]) {
-      acc[zona] = {
-        zona,
-        total: 0,
-        presentes: 0,
-        ausentes: 0,
-        tardes: 0,
-        ilt: 0,
-        horas: 0,
-      }
+      // Agregar empleado a cada recibo buscando por CUIL
+      const recibosConEmpleados = recibosData?.map((recibo, index) => {
+        const empleado = empleadosPorCuil.get(recibo.cuil)
+        if (index === 0) {
+          console.log('=== PRIMER RECIBO PROCESADO ===')
+          console.log('CUIL buscado:', recibo.cuil)
+          console.log('Empleado encontrado:', empleado)
+          console.log('Nombre del empleado:', empleado?.nombre_completo)
+        }
+        return {
+          ...recibo,
+          empleado: empleado || null
+        }
+      }) || []
+
+      // Agregar empleado a cada incentivo buscando por CUIL
+      const incentivosConEmpleados = incentivosData?.map(inv => {
+        const empleado = empleadosPorCuil.get(inv.cuil)
+        return {
+          ...inv,
+          empleado: empleado || null
+        }
+      }) || []
+
+      console.log('=== FIN DEBUG ===')
+
+      setRecibos(recibosConEmpleados)
+      setIncentivos(incentivosConEmpleados)
+    } catch (error) {
+      console.error('Error cargando datos:', error)
+    } finally {
+      setLoading(false)
     }
-    acc[zona].total++
-    if (r.estado === 'presente') acc[zona].presentes++
-    if (r.estado?.startsWith('ausente')) acc[zona].ausentes++
-    if (r.estado === 'tarde') acc[zona].tardes++
-    if (r.estado === 'ilt') acc[zona].ilt++
-    acc[zona].horas += parseFloat(r.horas_trabajadas) || 0
-    return acc
-  }, {})
+  }
 
-  const datosZonas = Object.values(estadisticasPorZona)
-    .sort((a: any, b: any) => b.total - a.total)
+  const getEmpleado = (empleadoId: string, cuil?: string) => {
+    if (cuil) {
+      const emp = empleados.find(e => e.cuil === cuil)
+      if (emp) return emp
+    }
+    if (empleadoId) {
+      return empleados.find(e => e.id === empleadoId)
+    }
+    return null
+  }
 
-  // Exportar a Excel
-  const exportarExcel = () => {
+  // Generar planilla completa (Excel con 3 hojas)
+  const generarPlanillaCompleta = () => {
+    if (recibos.length === 0 && incentivos.length === 0) {
+      alert('No hay datos para el período seleccionado')
+      return
+    }
+
+    // Sheet 1: Sueldos
+    const sueldosData = recibos.map(recibo => {
+      const emp = recibo.empleado || {}
+      return {
+        'CUIL': recibo.cuil || emp.cuil || '',
+        'Legajo': recibo.legajo || '',
+        'Nombre': emp.nombre_completo || recibo.nombre_completo || '',
+        'Sección': recibo.seccion || '',
+        'Categoría': recibo.categoria || '',
+        'Banco': recibo.banco || emp.banco || '',
+        'CBU': emp.cbu || recibo.cbu || '',
+        'Alias': emp.alias_cbu || recibo.alias_cbu || '',
+        'Bruto': recibo.monto_bruto || 0,
+        'Descuentos': recibo.total_descuentos || 0,
+        'Neto a Cobrar': recibo.neto_a_cobrar || 0,
+        'Período': recibo.periodo,
+        'Quincena': recibo.quincena,
+        'Estado': recibo.estado
+      }
+    })
+
+    // Sheet 2: Incentivos
+    const incentivosData = incentivos.map(inv => {
+      const emp = inv.empleado || {}
+      return {
+        'CUIL': inv.cuil || emp.cuil || '',
+        'Nombre': emp.nombre_completo || 'SIN NOMBRE',
+        'CBU': emp.cbu || '',
+        'Alias': emp.alias_cbu || '',
+        'Monto Neto': inv.monto_neto || 0,
+        'Período': inv.periodo
+      }
+    })
+
+    // Sheet 3: Resumen consolidado
+    const resumenMap = new Map<string, any>()
+
+    recibos.forEach(recibo => {
+      const emp = recibo.empleado || {}
+      const key = recibo.cuil || emp.cuil || ''
+      if (!resumenMap.has(key)) {
+        resumenMap.set(key, {
+          'CUIL': key,
+          'Nombre': emp.nombre_completo || recibo.nombre_completo || 'SIN NOMBRE',
+          'CBU': emp.cbu || recibo.cbu || '',
+          'Alias': emp.alias_cbu || recibo.alias_cbu || '',
+          'Banco': recibo.banco || emp.banco || '',
+          'Total Sueldos': 0,
+          'Total Incentivos': 0,
+          'Total a Transferir': 0
+        })
+      }
+      const item = resumenMap.get(key)!
+      item['Total Sueldos'] += recibo.neto_a_cobrar || 0
+    })
+
+    incentivos.forEach(inv => {
+      const emp = inv.empleado || {}
+      const key = inv.cuil || emp.cuil || ''
+      if (resumenMap.has(key)) {
+        const item = resumenMap.get(key)!
+        item['Total Incentivos'] += inv.monto_neto || 0
+      } else {
+        resumenMap.set(key, {
+          'CUIL': key,
+          'Nombre': emp.nombre_completo || 'SIN NOMBRE',
+          'CBU': emp.cbu || '',
+          'Alias': emp.alias_cbu || '',
+          'Banco': emp.banco || '',
+          'Total Sueldos': 0,
+          'Total Incentivos': inv.monto_neto || 0,
+          'Total a Transferir': inv.monto_neto || 0
+        })
+      }
+    })
+
+    resumenMap.forEach(item => {
+      item['Total a Transferir'] = item['Total Sueldos'] + item['Total Incentivos']
+    })
+
+    const resumenData = Array.from(resumenMap.values())
+
     const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sueldosData), 'Sueldos')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(incentivosData), 'Incentivos')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumenData), 'Resumen')
 
-    // Hoja 1: Resumen
-    const resumenData = [
-      ['REPORTE DE ASISTENCIA'],
-      [`Período: ${fechaDesde} al ${fechaHasta}`],
-      [`Zona: ${filtroZona === 'todas' ? 'Todas' : filtroZona}`],
-      [],
-      ['ESTADÍSTICAS GENERALES'],
-      ['Total Registros', estadisticas.totalRegistros],
-      ['Presentes', estadisticas.presentes],
-      ['Ausentes', estadisticas.ausentes],
-      ['Tardes', estadisticas.tardes],
-      ['Permisos', estadisticas.permisos],
-      ['Vacaciones', estadisticas.vacaciones],
-      ['Licencias Médicas', estadisticas.licencias],
-      ['ILT/ART', estadisticas.ilt_art],
-      ['Licencias Familiares', estadisticas.licencias_familiar],
-      ['Feriados', estadisticas.feriados],
-      ['Horas Totales', estadisticas.horasTotales.toFixed(2)],
-    ]
-    const wsResumen = XLSX.utils.aoa_to_sheet(resumenData)
-    XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen')
-
-    // Hoja 2: Detalle por empleado
-    const detalleData = [['Empleado', 'Zona', 'Ausencias', 'Tardes', 'ILT', 'Total Incidencias']]
-    rankingEmpleados.forEach((e: any) => {
-      detalleData.push([e.nombre, e.zona, e.ausencias, e.tardes, e.ilt, e.total])
-    })
-    const wsDetalle = XLSX.utils.aoa_to_sheet(detalleData)
-    XLSX.utils.book_append_sheet(wb, wsDetalle, 'Ranking Empleados')
-
-    // Hoja 3: Por zona
-    const zonaData = [['Zona', 'Total', 'Presentes', 'Ausentes', 'Tardes', 'ILT', 'Horas']]
-    datosZonas.forEach((z: any) => {
-      zonaData.push([z.zona, z.total, z.presentes, z.ausentes, z.tardes, z.ilt, z.horas.toFixed(2)])
-    })
-    const wsZona = XLSX.utils.aoa_to_sheet(zonaData)
-    XLSX.utils.book_append_sheet(wb, wsZona, 'Por Zona')
-
-    XLSX.writeFile(wb, `reporte_asistencia_${fechaDesde}_${fechaHasta}.xlsx`)
+    XLSX.writeFile(wb, `Planilla_Completa_${periodo}_${quincena !== 'todas' ? `Q${quincena}` : 'Completa'}_${new Date().toISOString().split('T')[0]}.xlsx`)
+    alert(`✅ Planilla completa generada con ${sueldosData.length} sueldos y ${incentivosData.length} incentivos`)
   }
 
-  if (loading) {
-    return (
-      <div className="text-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-      </div>
-    )
+  // Generar planilla para banco (solo CBU + Monto)
+  const generarPlanillaBanco = () => {
+    if (recibos.length === 0 && incentivos.length === 0) {
+      alert('No hay datos para el período seleccionado')
+      return
+    }
+
+    const bancoMap = new Map<string, any>()
+
+    recibos.forEach(recibo => {
+      const emp = recibo.empleado || {}
+      const key = emp.cbu || recibo.cbu || ''
+      if (!key) return
+
+      if (!bancoMap.has(key)) {
+        bancoMap.set(key, {
+          'CBU': key,
+          'Alias': emp.alias_cbu || recibo.alias_cbu || '',
+          'Nombre': emp.nombre_completo || recibo.nombre_completo || 'SIN NOMBRE',
+          'CUIL': recibo.cuil || emp.cuil || '',
+          'Monto Sueldo': 0,
+          'Monto Incentivo': 0,
+          'Total a Transferir': 0
+        })
+      }
+      const item = bancoMap.get(key)!
+      item['Monto Sueldo'] += recibo.neto_a_cobrar || 0
+    })
+
+    incentivos.forEach(inv => {
+      const emp = inv.empleado || {}
+      const key = emp.cbu || ''
+      if (!key) return
+
+      if (bancoMap.has(key)) {
+        const item = bancoMap.get(key)!
+        item['Monto Incentivo'] += inv.monto_neto || 0
+      }
+    })
+
+    bancoMap.forEach(item => {
+      item['Total a Transferir'] = item['Monto Sueldo'] + item['Monto Incentivo']
+    })
+
+    const bancoData = Array.from(bancoMap.values())
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(bancoData), 'Transferencias')
+
+    XLSX.writeFile(wb, `Planilla_Banco_${periodo}_${quincena !== 'todas' ? `Q${quincena}` : 'Completa'}_${new Date().toISOString().split('T')[0]}.xlsx`)
+    alert(`✅ Planilla para banco generada con ${bancoData.length} transferencias`)
   }
+
+  // Generar CSV simple
+  const generarCSV = () => {
+    if (recibos.length === 0 && incentivos.length === 0) {
+      alert('No hay datos para el período seleccionado')
+      return
+    }
+
+    const csvData = recibos.map(recibo => {
+      const emp = recibo.empleado || {}
+      return {
+        CUIL: recibo.cuil || emp.cuil || '',
+        Nombre: emp.nombre_completo || recibo.nombre_completo || 'SIN NOMBRE',
+        CBU: emp.cbu || recibo.cbu || '',
+        Neto: recibo.neto_a_cobrar || 0,
+        Período: recibo.periodo,
+        Quincena: recibo.quincena
+      }
+    })
+
+    const ws = XLSX.utils.json_to_sheet(csvData)
+    const csv = XLSX.utils.sheet_to_csv(ws)
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `Planilla_CSV_${periodo}_${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
+
+    alert(`✅ CSV generado con ${csvData.length} registros`)
+  }
+
+  const totalSueldos = recibos.reduce((sum, r) => sum + (r.neto_a_cobrar || 0), 0)
+  const totalIncentivos = incentivos.reduce((sum, i) => sum + (i.monto_neto || 0), 0)
+  const totalGeneral = totalSueldos + totalIncentivos
+  const empleadosSinCBU = empleados.filter(e => !e.cbu).length
 
   return (
     <div>
-      <div className="mb-6 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Reportes de Ausentismo</h1>
-          <p className="text-gray-600">Análisis completo de asistencia del personal</p>
-        </div>
-        <button
-          onClick={exportarExcel}
-          className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 text-sm font-medium"
-        >
-          📥 Exportar a Excel
-        </button>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold">Generación de Planillas</h1>
+        <p className="text-gray-600">Exportá planillas para transferencias bancarias</p>
       </div>
 
       {/* Filtros */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 className="text-lg font-semibold mb-4">Filtros</h2>
+        <div className="flex gap-4 flex-wrap">
           <div>
-            <label className="block text-sm font-medium mb-2">Desde:</label>
+            <label className="block text-sm font-medium mb-2">Período:</label>
             <input
-              type="date"
-              value={fechaDesde}
-              onChange={(e) => setFechaDesde(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2"
+              type="month"
+              value={periodo}
+              onChange={(e) => setPeriodo(e.target.value)}
+              className="border border-gray-300 rounded px-3 py-2"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2">Hasta:</label>
-            <input
-              type="date"
-              value={fechaHasta}
-              onChange={(e) => setFechaHasta(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Zona:</label>
+            <label className="block text-sm font-medium mb-2">Quincena:</label>
             <select
-              value={filtroZona}
-              onChange={(e) => setFiltroZona(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2"
+              value={quincena}
+              onChange={(e) => setQuincena(e.target.value)}
+              className="border border-gray-300 rounded px-3 py-2"
             >
-              <option value="todas">Todas las zonas</option>
-              {zonas.map(z => (
-                <option key={z} value={z}>{z}</option>
-              ))}
+              <option value="todas">Todas</option>
+              <option value="1ra">1ra Quincena</option>
+              <option value="2da">2da Quincena</option>
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Estado:</label>
-            <select
-              value={filtroEstado}
-              onChange={(e) => setFiltroEstado(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2"
+          <div className="flex items-end">
+            <button
+              onClick={() => setVistaPrevia(!vistaPrevia)}
+              className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
             >
-              <option value="todos">Todos los estados</option>
-              {ESTADOS_ASISTENCIA.map(e => (
-                <option key={e.value} value={e.value}>{e.label}</option>
-              ))}
-            </select>
+              {vistaPrevia ? 'Ocultar Vista Previa' : 'Ver Vista Previa'}
+            </button>
           </div>
+        </div>
+
+        {loading && (
+          <div className="mt-4 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          </div>
+        )}
+      </div>
+
+      {/* Resumen */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <p className="text-sm text-blue-700">Sueldos</p>
+          <p className="text-2xl font-bold text-blue-900">{recibos.length}</p>
+          <p className="text-sm text-blue-600">${totalSueldos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+        </div>
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <p className="text-sm text-green-700">Incentivos</p>
+          <p className="text-2xl font-bold text-green-900">{incentivos.length}</p>
+          <p className="text-sm text-green-600">${totalIncentivos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+        </div>
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+          <p className="text-sm text-purple-700">Total a Transferir</p>
+          <p className="text-2xl font-bold text-purple-900">${totalGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+        </div>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p className="text-sm text-yellow-700">Empleados sin CBU</p>
+          <p className="text-2xl font-bold text-yellow-900">{empleadosSinCBU}</p>
+          <p className="text-xs text-yellow-600">Revisar antes de generar</p>
         </div>
       </div>
 
-      {/* Tabs de vistas */}
-      <div className="flex gap-4 mb-6 border-b">
-        <button
-          onClick={() => setVistaActiva('resumen')}
-          className={`px-4 py-2 ${vistaActiva === 'resumen' ? 'border-b-2 border-blue-600 text-blue-600 font-semibold' : 'text-gray-600'}`}
-        >
-          📊 Resumen General
-        </button>
-        <button
-          onClick={() => setVistaActiva('empleados')}
-          className={`px-4 py-2 ${vistaActiva === 'empleados' ? 'border-b-2 border-blue-600 text-blue-600 font-semibold' : 'text-gray-600'}`}
-        >
-           Ranking Empleados
-        </button>
-        <button
-          onClick={() => setVistaActiva('zonas')}
-          className={`px-4 py-2 ${vistaActiva === 'zonas' ? 'border-b-2 border-blue-600 text-blue-600 font-semibold' : 'text-gray-600'}`}
-        >
-          ️ Por Zona
-        </button>
+      {/* Botones de descarga */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 className="text-lg font-semibold mb-4">Descargar Planilla</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <button
+            onClick={generarPlanillaCompleta}
+            disabled={recibos.length === 0 && incentivos.length === 0}
+            className="bg-green-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+             Excel Completo (3 hojas)
+          </button>
+          <button
+            onClick={generarPlanillaBanco}
+            disabled={recibos.length === 0 && incentivos.length === 0}
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            🏦 Formato Banco
+          </button>
+          <button
+            onClick={generarCSV}
+            disabled={recibos.length === 0 && incentivos.length === 0}
+            className="bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            📄 CSV Simple
+          </button>
+        </div>
       </div>
 
-      {/* Vista: Resumen General */}
-      {vistaActiva === 'resumen' && (
-        <div className="space-y-6">
-          {/* Tarjetas de estadísticas */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
-              <p className="text-xs text-gray-600">Total Registros</p>
-              <p className="text-2xl font-bold text-blue-900">{estadisticas.totalRegistros}</p>
-            </div>
-            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
-              <p className="text-xs text-gray-600">Presentes</p>
-              <p className="text-2xl font-bold text-green-900">{estadisticas.presentes}</p>
-            </div>
-            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
-              <p className="text-xs text-gray-600">Ausentes</p>
-              <p className="text-2xl font-bold text-red-900">{estadisticas.ausentes}</p>
-            </div>
-            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
-              <p className="text-xs text-gray-600">Tardes</p>
-              <p className="text-2xl font-bold text-orange-900">{estadisticas.tardes}</p>
-            </div>
-            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-red-600">
-              <p className="text-xs text-gray-600">ILT/ART</p>
-              <p className="text-2xl font-bold text-red-700">{estadisticas.ilt_art}</p>
-            </div>
-          </div>
-
-          {/* Gráficos */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Gráfico de torta */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold mb-4">Distribución de Estados</h3>
-              {datosTorta.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={datosTorta}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {datosTorta.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-center text-gray-500 py-12">No hay datos para mostrar</p>
-              )}
-            </div>
-
-            {/* Gráfico de barras */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold mb-4">Evolución Diaria (últimos 30 días)</h3>
-              {datosBarras.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={datosBarras}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="fecha" tick={{ fontSize: 10 }} />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="presentes" fill="#10b981" name="Presentes" />
-                    <Bar dataKey="ausentes" fill="#ef4444" name="Ausentes" />
-                    <Bar dataKey="tardes" fill="#f97316" name="Tardes" />
-                    <Bar dataKey="otros" fill="#6b7280" name="Otros" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-center text-gray-500 py-12">No hay datos para mostrar</p>
-              )}
-            </div>
-          </div>
-
-          {/* Resumen de ILT/ART */}
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-red-900 mb-2">🚑 Resumen ILT/ART</h3>
-            <p className="text-red-700">
-              Total de registros de ILT en el período: <strong>{estadisticas.ilt_art}</strong>
-            </p>
-            <p className="text-sm text-red-600 mt-2">
-              Representa el {estadisticas.totalRegistros > 0 ? ((estadisticas.ilt_art / estadisticas.totalRegistros) * 100).toFixed(2) : 0}% del total de registros
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Vista: Ranking de Empleados */}
-      {vistaActiva === 'empleados' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="p-4 border-b">
-            <h3 className="text-lg font-semibold">Top 20 Empleados con Más Incidencias</h3>
-            <p className="text-sm text-gray-600">Ausencias + Tardes + ILT</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">#</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Empleado</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Zona</th>
-                  <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Ausencias</th>
-                  <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Tardes</th>
-                  <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">ILT</th>
-                  <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {rankingEmpleados.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center py-8 text-gray-500">
-                      No hay incidencias en este período
-                    </td>
-                  </tr>
-                ) : (
-                  rankingEmpleados.map((emp: any, idx: number) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-bold text-gray-700">{idx + 1}</td>
-                      <td className="px-4 py-3 text-sm font-medium">{emp.nombre}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{emp.zona}</td>
-                      <td className="px-4 py-3 text-center text-sm text-red-600 font-semibold">{emp.ausencias}</td>
-                      <td className="px-4 py-3 text-center text-sm text-orange-600 font-semibold">{emp.tardes}</td>
-                      <td className="px-4 py-3 text-center text-sm text-red-700 font-semibold">{emp.ilt}</td>
-                      <td className="px-4 py-3 text-center text-sm font-bold">{emp.total}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Vista: Por Zona */}
-      {vistaActiva === 'zonas' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-4 border-b">
-              <h3 className="text-lg font-semibold">Estadísticas por Zona</h3>
-            </div>
+      {/* Vista Previa */}
+      {vistaPrevia && (
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 className="text-lg font-semibold mb-4">Vista Previa - Resumen Consolidado</h2>
+          {recibos.length === 0 && incentivos.length === 0 ? (
+            <p className="text-center text-gray-500 py-8">No hay datos para mostrar</p>
+          ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Zona</th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Total</th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Presentes</th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Ausentes</th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Tardes</th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">ILT</th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700">Horas</th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">CUIL</th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Nombre</th>
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">CBU</th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-700">Sueldo</th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-700">Incentivo</th>
+                    <th className="text-right px-4 py-3 text-sm font-semibold text-gray-700">Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {datosZonas.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="text-center py-8 text-gray-500">
-                        No hay datos por zona
-                      </td>
-                    </tr>
-                  ) : (
-                    datosZonas.map((z: any, idx: number) => (
+                  {(() => {
+                    const resumenMap = new Map<string, any>()
+                    recibos.forEach(recibo => {
+                      const emp = recibo.empleado || {}
+                      const key = recibo.cuil || emp.cuil || ''
+                      if (!resumenMap.has(key)) {
+                        resumenMap.set(key, {
+                          cuil: key,
+                          nombre: emp.nombre_completo || recibo.nombre_completo || '',
+                          cbu: emp.cbu || recibo.cbu || '',
+                          sueldo: 0,
+                          incentivo: 0,
+                          total: 0
+                        })
+                      }
+                      const item = resumenMap.get(key)!
+                      item.sueldo += recibo.neto_a_cobrar || 0
+                    })
+                    incentivos.forEach(inv => {
+                      const emp = inv.empleado || {}
+                      const key = inv.cuil || emp.cuil || ''
+                      if (resumenMap.has(key)) {
+                        const item = resumenMap.get(key)!
+                        item.incentivo += inv.monto_neto || 0
+                      } else {
+                        resumenMap.set(key, {
+                          cuil: key,
+                          nombre: emp.nombre_completo || 'SIN NOMBRE',
+                          cbu: emp.cbu || '',
+                          sueldo: 0,
+                          incentivo: inv.monto_neto || 0,
+                          total: inv.monto_neto || 0
+                        })
+                      }
+                    })
+                    resumenMap.forEach(item => {
+                      item.total = item.sueldo + item.incentivo
+                    })
+                    return Array.from(resumenMap.values()).map((item, idx) => (
                       <tr key={idx} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-medium">{z.zona}</td>
-                        <td className="px-4 py-3 text-center text-sm">{z.total}</td>
-                        <td className="px-4 py-3 text-center text-sm text-green-600 font-semibold">{z.presentes}</td>
-                        <td className="px-4 py-3 text-center text-sm text-red-600 font-semibold">{z.ausentes}</td>
-                        <td className="px-4 py-3 text-center text-sm text-orange-600 font-semibold">{z.tardes}</td>
-                        <td className="px-4 py-3 text-center text-sm text-red-700 font-semibold">{z.ilt}</td>
-                        <td className="px-4 py-3 text-center text-sm font-semibold">{z.horas.toFixed(1)}h</td>
+                        <td className="px-4 py-3 text-sm font-mono">{item.cuil}</td>
+                        <td className="px-4 py-3 text-sm font-medium">{item.nombre}</td>
+                        <td className="px-4 py-3 text-sm font-mono text-gray-600">{item.cbu || '️ Sin CBU'}</td>
+                        <td className="px-4 py-3 text-sm text-right">${item.sueldo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-4 py-3 text-sm text-right">${item.incentivo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-4 py-3 text-sm text-right font-bold">${item.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       </tr>
                     ))
-                  )}
+                  })()}
                 </tbody>
+                <tfoot className="bg-gray-100 border-t-2">
+                  <tr>
+                    <td colSpan={3} className="px-4 py-3 text-sm font-bold">TOTAL</td>
+                    <td className="px-4 py-3 text-sm text-right font-bold">${totalSueldos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-sm text-right font-bold">${totalIncentivos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-sm text-right font-bold text-lg">${totalGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
-          </div>
+          )}
+        </div>
+      )}
 
-          {/* Gráfico de barras por zona */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-4">Comparativa por Zona</h3>
-            {datosZonas.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={datosZonas}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="zona" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="presentes" fill="#10b981" name="Presentes" />
-                  <Bar dataKey="ausentes" fill="#ef4444" name="Ausentes" />
-                  <Bar dataKey="tardes" fill="#f97316" name="Tardes" />
-                  <Bar dataKey="ilt" fill="#dc2626" name="ILT/ART" />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="text-center text-gray-500 py-12">No hay datos para mostrar</p>
-            )}
-          </div>
+      {/* Advertencia si faltan CBUs */}
+      {empleadosSinCBU > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p className="text-yellow-800">
+            <strong>⚠️ Atención:</strong> {empleadosSinCBU} empleado(s) no tienen CBU cargado.
+            La planilla se generará pero las transferencias podrían fallar.
+          </p>
         </div>
       )}
     </div>

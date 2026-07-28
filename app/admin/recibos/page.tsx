@@ -20,19 +20,26 @@ const normalizarPeriodo = (periodo: string): string => {
     'NOV': '11', 'NOVIEMBRE': '11',
     'DIC': '12', 'DICIEMBRE': '12'
   }
-  
-  // Si ya está en formato 2026-05, devolverlo
+
   if (/^\d{4}-\d{2}$/.test(periodo)) return periodo
-  
-  // Si es 2026-MAY, convertir
+
   const match = periodo.match(/(\d{4})-(\w+)/)
   if (match) {
     const anio = match[1]
     const mes = meses[match[2].toUpperCase()] || '01'
     return `${anio}-${mes}`
   }
-  
+
   return periodo
+}
+
+// Etiquetas para tipos de recibo
+const TIPOS_RECIBO_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  'normal': { label: 'Sueldo', color: 'text-blue-800', bg: 'bg-blue-100' },
+  'sac_1ra': { label: 'SAC 1er Semestre', color: 'text-purple-800', bg: 'bg-purple-100' },
+  'sac_2da': { label: 'SAC 2do Semestre', color: 'text-purple-800', bg: 'bg-purple-100' },
+  'vacaciones': { label: 'Vacaciones', color: 'text-teal-800', bg: 'bg-teal-100' },
+  'bono': { label: 'Bono', color: 'text-orange-800', bg: 'bg-orange-100' },
 }
 
 interface Recibo {
@@ -41,13 +48,16 @@ interface Recibo {
   periodoNormalizado: string
   mes: string
   quincena: string
+  tipo_recibo: string
   neto_a_cobrar: number
   estado_firma: string
+  estado: string
   fecha_firma: string | null
   firma_imagen_url: string | null
   firma_hash: string | null
   ip_firmante: string | null
   pdf_url: string | null
+  pdf_original_url: string | null
   fue_firmado_anteriormente: boolean
   fecha_anulacion: string | null
   motivo_anulacion: string | null
@@ -67,11 +77,15 @@ export default function AdminRecibosPage() {
   const [filtroMes, setFiltroMes] = useState<string>('todos')
   const [filtroQuincena, setFiltroQuincena] = useState<string>('todas')
   const [filtroEstado, setFiltroEstado] = useState<string>('todos')
+  const [filtroTipoRecibo, setFiltroTipoRecibo] = useState<string>('todos')
   const [busqueda, setBusqueda] = useState('')
   const [reciboSeleccionado, setReciboSeleccionado] = useState<Recibo | null>(null)
   const [mostrarModal, setMostrarModal] = useState(false)
   
-  // 🆕 Estados para eliminar recibo
+  // Estados para ver PDF del recibo
+  const [reciboVerPDF, setReciboVerPDF] = useState<Recibo | null>(null)
+
+  // Estados para eliminar recibo
   const [eliminandoRecibo, setEliminandoRecibo] = useState<Recibo | null>(null)
   const [motivoEliminacion, setMotivoEliminacion] = useState('')
   const [errorEliminacion, setErrorEliminacion] = useState('')
@@ -101,14 +115,18 @@ export default function AdminRecibosPage() {
         .order('quincena', { ascending: false })
 
       if (error) throw error
-      
-      // Normalizar períodos y extraer mes
+
       const recibosNormalizados = (data || []).map(r => {
         const periodoNorm = normalizarPeriodo(r.periodo)
         const [, mes] = periodoNorm.split('-')
-        return { ...r, periodoNormalizado: periodoNorm, mes }
+        return { 
+          ...r, 
+          periodoNormalizado: periodoNorm, 
+          mes,
+          tipo_recibo: r.tipo_recibo || 'normal'
+        }
       })
-      
+
       setRecibos(recibosNormalizados)
     } catch (error) {
       console.error('Error cargando recibos:', error)
@@ -130,9 +148,12 @@ export default function AdminRecibosPage() {
 
   // Obtener meses únicos para el filtro
   const mesesUnicos = Array.from(new Set(recibos.map(r => r.mes))).sort().reverse()
-  
+
   // Obtener quincenas únicas
   const quincenasUnicas = Array.from(new Set(recibos.map(r => r.quincena))).sort()
+
+  // Obtener tipos de recibo únicos
+  const tiposReciboUnicos = Array.from(new Set(recibos.map(r => r.tipo_recibo || 'normal'))).sort()
 
   // Nombres de meses para mostrar
   const nombresMeses: Record<string, string> = {
@@ -143,22 +164,22 @@ export default function AdminRecibosPage() {
 
   // Filtrar recibos
   const recibosFiltrados = recibos.filter(recibo => {
-    // Filtro por mes
     if (filtroMes !== 'todos' && recibo.mes !== filtroMes) {
       return false
     }
-    
-    // Filtro por quincena
+
     if (filtroQuincena !== 'todas' && recibo.quincena !== filtroQuincena) {
       return false
     }
-    
-    // Filtro por estado
+
     if (filtroEstado !== 'todos' && recibo.estado_firma !== filtroEstado) {
       return false
     }
-    
-    // Búsqueda por nombre o CUIL
+
+    if (filtroTipoRecibo !== 'todos' && recibo.tipo_recibo !== filtroTipoRecibo) {
+      return false
+    }
+
     if (busqueda) {
       const busquedaLower = busqueda.toLowerCase()
       const nombreMatch = recibo.empleados.nombre_completo.toLowerCase().includes(busquedaLower)
@@ -167,13 +188,18 @@ export default function AdminRecibosPage() {
         return false
       }
     }
-    
+
     return true
   })
 
   const verFirma = (recibo: Recibo) => {
     setReciboSeleccionado(recibo)
     setMostrarModal(true)
+  }
+
+  // Abrir modal para ver PDF del recibo
+  const verReciboPDF = (recibo: Recibo) => {
+    setReciboVerPDF(recibo)
   }
 
   const descargarPDF = async (reciboId: string) => {
@@ -185,7 +211,7 @@ export default function AdminRecibosPage() {
       })
 
       const data = await response.json()
-      
+
       if (data.success) {
         window.open(data.pdfUrl, '_blank')
       } else {
@@ -202,7 +228,7 @@ export default function AdminRecibosPage() {
       `Recibo: ${recibo.periodo} - ${recibo.quincena}\n\n` +
       `Este campo es obligatorio para auditoría.`
     )
-    
+
     if (!motivo) return
     if (motivo.length < 10) {
       alert('El motivo debe tener al menos 10 caracteres')
@@ -237,10 +263,10 @@ export default function AdminRecibosPage() {
     }
   }
 
-  // 🆕 Función para eliminar recibo
+  // Función para eliminar recibo
   const eliminarRecibo = async () => {
     if (!eliminandoRecibo) return
-    
+
     if (!motivoEliminacion.trim()) {
       setErrorEliminacion('El motivo es obligatorio')
       return
@@ -288,7 +314,7 @@ export default function AdminRecibosPage() {
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Gestión de Recibos</h1>
+          <h1 className="text-3xl font-bold text-slate-900">Gestión de Recibos</h1>
           <p className="text-gray-600">Panel de administración - Movilsat RRHH</p>
         </div>
         <button
@@ -301,22 +327,22 @@ export default function AdminRecibosPage() {
 
       {/* Estadísticas */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-slate-600">
           <p className="text-sm text-gray-600 mb-1">Total Recibos</p>
           <p className="text-3xl font-bold text-gray-800">{totalRecibos}</p>
         </div>
-        
-        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
+
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-emerald-500">
           <p className="text-sm text-gray-600 mb-1">Firmados</p>
           <p className="text-3xl font-bold text-green-600">{firmados}</p>
         </div>
-        
-        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-yellow-500">
+
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-amber-500">
           <p className="text-sm text-gray-600 mb-1">Pendientes</p>
           <p className="text-3xl font-bold text-yellow-600">{pendientes}</p>
         </div>
-        
-        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-purple-500">
+
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-slate-500">
           <p className="text-sm text-gray-600 mb-1">% Cumplimiento</p>
           <p className="text-3xl font-bold text-purple-600">{porcentajeFirmado}%</p>
         </div>
@@ -324,7 +350,7 @@ export default function AdminRecibosPage() {
 
       {/* Filtros MEJORADOS */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Mes
@@ -353,6 +379,24 @@ export default function AdminRecibosPage() {
               <option value="todas">Todas las quincenas</option>
               {quincenasUnicas.map(q => (
                 <option key={q} value={q}>{q}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Tipo de Recibo
+            </label>
+            <select
+              value={filtroTipoRecibo}
+              onChange={(e) => setFiltroTipoRecibo(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="todos">Todos los tipos</option>
+              {tiposReciboUnicos.map(tipo => (
+                <option key={tipo} value={tipo}>
+                  {TIPOS_RECIBO_LABELS[tipo]?.label || tipo}
+                </option>
               ))}
             </select>
           </div>
@@ -396,113 +440,128 @@ export default function AdminRecibosPage() {
         </div>
 
         <div className="divide-y divide-gray-200">
-          {recibosFiltrados.map((recibo) => (
-            <div key={recibo.id} className="p-6 hover:bg-gray-50 transition-colors">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h3 className="text-lg font-semibold text-gray-800">
-                      {recibo.empleados.nombre_completo}
-                    </h3>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      recibo.estado_firma === 'firmado' 
-                        ? recibo.fue_firmado_anteriormente
-                          ? 'bg-orange-100 text-orange-800'
-                          : 'bg-green-100 text-green-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {recibo.estado_firma === 'firmado' 
-                        ? recibo.fue_firmado_anteriormente
-                          ? '⚠️ Firmado (anulado previamente)'
-                          : '✅ Firmado'
-                        : '⏳ Pendiente'}
-                    </span>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-600">CUIL:</span>
-                      <p className="font-medium">{recibo.empleados.cuil}</p>
+          {recibosFiltrados.map((recibo) => {
+            const tipoInfo = TIPOS_RECIBO_LABELS[recibo.tipo_recibo] || TIPOS_RECIBO_LABELS['normal']
+            
+            return (
+              <div key={recibo.id} className="p-6 hover:bg-gray-50 transition-colors">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2 flex-wrap">
+                      <h3 className="text-lg font-semibold text-gray-800">
+                        {recibo.empleados.nombre_completo}
+                      </h3>
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                        recibo.estado_firma === 'firmado'
+                          ? recibo.fue_firmado_anteriormente
+                            ? 'bg-orange-100 text-orange-800'
+                            : 'bg-green-100 text-green-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {recibo.estado_firma === 'firmado'
+                          ? recibo.fue_firmado_anteriormente
+                            ? '⚠️ Firmado (anulado previamente)'
+                            : '✅ Firmado'
+                          : '⏳ Pendiente'}
+                      </span>
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${tipoInfo.bg} ${tipoInfo.color}`}>
+                        {tipoInfo.label}
+                      </span>
                     </div>
-                    <div>
-                      <span className="text-gray-600">Legajo:</span>
-                      <p className="font-medium">{recibo.empleados.legajo || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Período:</span>
-                      <p className="font-medium">{recibo.periodo} - {recibo.quincena}</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Neto:</span>
-                      <p className="font-bold text-green-700">
-                        ${recibo.neto_a_cobrar.toLocaleString('es-AR')}
-                      </p>
-                    </div>
-                  </div>
 
-                  {recibo.estado_firma === 'firmado' && recibo.fecha_firma && (
-                    <div className="mt-3 text-xs text-gray-500">
-                      <span>Firmado: {new Date(recibo.fecha_firma).toLocaleString('es-AR')}</span>
-                      {recibo.ip_firmante && <span className="ml-4">IP: {recibo.ip_firmante}</span>}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-600">CUIL:</span>
+                        <p className="font-medium">{recibo.empleados.cuil}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Legajo:</span>
+                        <p className="font-medium">{recibo.empleados.legajo || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Período:</span>
+                        <p className="font-medium">{recibo.periodo} - {recibo.quincena}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Neto:</span>
+                        <p className="font-bold text-green-700">
+                          ${recibo.neto_a_cobrar.toLocaleString('es-AR')}
+                        </p>
+                      </div>
                     </div>
+
+                    {recibo.estado_firma === 'firmado' && recibo.fecha_firma && (
+                      <div className="mt-3 text-xs text-gray-500">
+                        <span>Firmado: {new Date(recibo.fecha_firma).toLocaleString('es-AR')}</span>
+                        {recibo.ip_firmante && <span className="ml-4">IP: {recibo.ip_firmante}</span>}
+                      </div>
+                    )}
+
+                    {recibo.estado_firma === 'pendiente' && (
+                      <div className="mt-3 text-xs text-gray-500">
+                        Cargado: {new Date(recibo.created_at).toLocaleString('es-AR')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Acciones */}
+                <div className="flex gap-2 mt-4 flex-wrap">
+                  {/* Botón VER RECIBO - disponible para TODOS los estados */}
+                  <button
+                    onClick={() => verReciboPDF(recibo)}
+                    className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
+                  >
+                    👁️ Ver Recibo
+                  </button>
+
+                  {recibo.estado_firma === 'firmado' && (
+                    <>
+                      <button
+                        onClick={() => descargarPDF(recibo.id)}
+                        className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                      >
+                        📄 Descargar PDF
+                      </button>
+
+                      {recibo.firma_imagen_url && (
+                        <button
+                          onClick={() => verFirma(recibo)}
+                          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                        >
+                          👁️ Ver Firma
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => anularFirma(recibo)}
+                        className="flex items-center gap-2 bg-slate-600 text-white px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium"
+                      >
+                        ↩️ Anular Firma
+                      </button>
+                    </>
                   )}
 
                   {recibo.estado_firma === 'pendiente' && (
-                    <div className="mt-3 text-xs text-gray-500">
-                      Cargado: {new Date(recibo.created_at).toLocaleString('es-AR')}
-                    </div>
+                    <button
+                      onClick={() => alert('🔔 Funcionalidad de recordatorio próximamente')}
+                      className="flex items-center gap-2 bg-rose-500 text-white px-4 py-2 rounded-lg hover:bg-rose-600 transition-colors text-sm font-medium"
+                    >
+                      🔔 Enviar Recordatorio
+                    </button>
                   )}
+
+                  {/* Botón de eliminar recibo - disponible para TODOS los estados */}
+                  <button
+                    onClick={() => setEliminandoRecibo(recibo)}
+                    className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                  >
+                    🗑️ Eliminar Recibo
+                  </button>
                 </div>
               </div>
-
-              {/* Acciones */}
-              <div className="flex gap-2 mt-4 flex-wrap">
-                {recibo.estado_firma === 'firmado' && (
-                  <>
-                    <button
-                      onClick={() => descargarPDF(recibo.id)}
-                      className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                    >
-                      📄 Descargar PDF
-                    </button>
-                    
-                    {recibo.firma_imagen_url && (
-                      <button
-                        onClick={() => verFirma(recibo)}
-                        className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                      >
-                        👁 Ver Firma
-                      </button>
-                    )}
-                    
-                    <button
-                      onClick={() => anularFirma(recibo)}
-                      className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium"
-                    >
-                      ↩️ Anular Firma
-                    </button>
-                  </>
-                )}
-
-                {recibo.estado_firma === 'pendiente' && (
-                  <button
-                    onClick={() => alert('🔔 Funcionalidad de recordatorio próximamente')}
-                    className="flex items-center gap-2 bg-yellow-500 text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition-colors text-sm font-medium"
-                  >
-                     Enviar Recordatorio
-                  </button>
-                )}
-
-                {/* 🆕 Botón de eliminar recibo - disponible para TODOS los estados */}
-                <button
-                  onClick={() => setEliminandoRecibo(recibo)}
-                  className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
-                >
-                  🗑️ Eliminar Recibo
-                </button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
 
           {recibosFiltrados.length === 0 && (
             <div className="p-12 text-center text-gray-500">
@@ -511,6 +570,59 @@ export default function AdminRecibosPage() {
           )}
         </div>
       </div>
+
+      {/* Modal de Ver PDF del Recibo */}
+      {reciboVerPDF && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[95vh] flex flex-col">
+            <div className="bg-indigo-600 text-white px-6 py-4 rounded-t-lg flex justify-between items-center sticky top-0">
+              <div>
+                <h2 className="text-xl font-bold">Recibo de Sueldo</h2>
+                <p className="text-sm text-indigo-100 mt-1">
+                  {reciboVerPDF.empleados.nombre_completo} | {reciboVerPDF.periodo} - {reciboVerPDF.quincena} | {TIPOS_RECIBO_LABELS[reciboVerPDF.tipo_recibo]?.label || reciboVerPDF.tipo_recibo}
+                </p>
+              </div>
+              <button
+                onClick={() => setReciboVerPDF(null)}
+                className="text-white hover:text-gray-200 text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-full hover:bg-indigo-700"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-hidden p-4 bg-gray-100">
+              {(reciboVerPDF.pdf_original_url || reciboVerPDF.pdf_url) ? (
+                <iframe
+                  src={reciboVerPDF.pdf_original_url || reciboVerPDF.pdf_url}
+                  className="w-full h-full border-0 rounded-lg"
+                  title="PDF del Recibo"
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center text-gray-500">
+                    <p className="text-6xl mb-4">📄</p>
+                    <p className="text-lg font-medium">No hay PDF disponible</p>
+                    <p className="text-sm mt-2">Este recibo no tiene un PDF asociado</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-gray-50 px-6 py-4 rounded-b-lg border-t border-gray-200 flex justify-between items-center">
+              <div className="text-sm text-gray-600">
+                <span className="font-medium">Neto:</span> ${reciboVerPDF.neto_a_cobrar.toLocaleString('es-AR')}
+                <span className="ml-4 font-medium">Estado:</span> {reciboVerPDF.estado_firma === 'firmado' ? '✅ Firmado' : '⏳ Pendiente'}
+              </div>
+              <button
+                onClick={() => setReciboVerPDF(null)}
+                className="bg-gray-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-gray-700 transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Firma */}
       {mostrarModal && reciboSeleccionado && (
@@ -528,7 +640,7 @@ export default function AdminRecibosPage() {
                 ×
               </button>
             </div>
-            
+
             <div className="p-6">
               <div className="mb-4">
                 <p className="text-sm text-gray-600 mb-1">Empleado:</p>
@@ -551,9 +663,9 @@ export default function AdminRecibosPage() {
                 <div className="mb-4">
                   <p className="text-sm text-gray-600 mb-2">Firma:</p>
                   <div className="border-2 border-gray-300 rounded-lg p-4 bg-gray-50">
-                    <img 
-                      src={reciboSeleccionado.firma_imagen_url} 
-                      alt="Firma digital" 
+                    <img
+                      src={reciboSeleccionado.firma_imagen_url}
+                      alt="Firma digital"
                       className="max-h-48 mx-auto"
                     />
                   </div>
@@ -590,18 +702,18 @@ export default function AdminRecibosPage() {
         </div>
       )}
 
-      {/* 🆕 Modal de Eliminación */}
+      {/* Modal de Eliminación */}
       {eliminandoRecibo && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
             <div className="bg-red-600 text-white px-6 py-4 rounded-t-lg">
               <h2 className="text-xl font-bold">🗑️ Eliminar Recibo</h2>
             </div>
-            
+
             <div className="p-6">
               <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <p className="text-sm text-yellow-800">
-                  ⚠️ <strong>Atención:</strong> Esta acción eliminará permanentemente el recibo. 
+                  ⚠️ <strong>Atención:</strong> Esta acción eliminará permanentemente el recibo.
                   El empleado deberá recibir un nuevo recibo si es necesario.
                 </p>
               </div>
@@ -611,6 +723,8 @@ export default function AdminRecibosPage() {
                 <p className="font-semibold">{eliminandoRecibo.empleados.nombre_completo}</p>
                 <p className="text-sm text-gray-600 mt-2 mb-1">Recibo:</p>
                 <p className="font-medium">{eliminandoRecibo.periodo} - {eliminandoRecibo.quincena}</p>
+                <p className="text-sm text-gray-600 mt-2 mb-1">Tipo:</p>
+                <p className="font-medium">{TIPOS_RECIBO_LABELS[eliminandoRecibo.tipo_recibo]?.label || eliminandoRecibo.tipo_recibo}</p>
                 <p className="text-sm text-gray-600 mt-2 mb-1">Neto a cobrar:</p>
                 <p className="font-bold text-green-700">
                   ${eliminandoRecibo.neto_a_cobrar.toLocaleString('es-AR')}

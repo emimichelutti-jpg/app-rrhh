@@ -91,10 +91,10 @@ export async function POST(request: Request) {
         const { width: pageWidth, height: pageHeight } = primeraPagina.getSize()
 
         //  Coordenadas del área de firma (sobre "FIRMA DEL EMPLEADO")
-        const anchoFirma = 130
-        const altoFirma = 60
-        const xFirma = 710  // Más a la derecha
-        const yFirma = 10   // Un poco más arriba
+        const anchoFirma = 150
+        const altoFirma = 70
+        const xFirma = 230  // Más a la derecha
+        const yFirma = 25   // Un poco más arriba
 
         primeraPagina.drawImage(firmaImage, {
           x: xFirma,
