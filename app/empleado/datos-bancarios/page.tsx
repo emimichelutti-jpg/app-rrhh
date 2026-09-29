@@ -52,8 +52,9 @@ export default function DatosBancariosPage() {
 
     try {
       // Validar CBU (22 dígitos)
-      if (nuevaSolicitud.cbu_nuevo.replace(/\D/g, '').length !== 22) {
-        alert('El CBU debe tener 22 dígitos')
+      const cbuLimpio = nuevaSolicitud.cbu_nuevo.replace(/\D/g, '')
+      if (cbuLimpio.length !== 22) {
+        alert('El CBU debe tener exactamente 22 dígitos')
         setEnviando(false)
         return
       }
@@ -63,7 +64,7 @@ export default function DatosBancariosPage() {
         .insert({
           empleado_id: empleado.id,
           cbu_anterior: datosBancarios.cbu,
-          cbu_nuevo: nuevaSolicitud.cbu_nuevo.replace(/\D/g, ''),
+          cbu_nuevo: cbuLimpio,
           alias_nuevo: nuevaSolicitud.alias_nuevo,
           banco_nuevo: nuevaSolicitud.banco_nuevo,
           motivo: nuevaSolicitud.motivo,
@@ -72,12 +73,14 @@ export default function DatosBancariosPage() {
 
       if (error) throw error
 
-      // Crear notificación para el admin
+      // ✅ FIX: Mensaje seguro que nunca mostrará "undefined"
+      const nombreEmpleado = empleado.nombre_completo || 'Un empleado'
+      
       await supabase.from('notificaciones').insert({
         empleado_id: empleado.id,
         tipo: 'solicitud_cbu',
         titulo: 'Solicitud de Cambio de CBU',
-        mensaje: `El empleado ${empleado.nombre_completo} solicitó cambiar su CBU`,
+        mensaje: `Se registró una solicitud de cambio de CBU para ${nombreEmpleado}. Pendiente de revisión por RRHH.`,
         leido: false
       })
 
@@ -125,7 +128,7 @@ export default function DatosBancariosPage() {
       <div className="bg-white rounded-lg shadow p-6 mb-6">
         <h2 className="text-lg font-semibold mb-4">Cuenta Bancaria Actual</h2>
         
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <p className="text-sm text-gray-600 mb-1">Banco</p>
             <p className="font-semibold text-lg">
@@ -156,7 +159,7 @@ export default function DatosBancariosPage() {
 
         <button
           onClick={() => setMostrarFormulario(true)}
-          className="mt-6 bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
+          className="mt-6 bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors"
         >
           Solicitar Cambio de CBU
         </button>
@@ -164,7 +167,7 @@ export default function DatosBancariosPage() {
 
       {/* Formulario de Solicitud */}
       {mostrarFormulario && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full">
             <h2 className="text-xl font-bold mb-4">Solicitar Cambio de CBU</h2>
             
@@ -177,7 +180,7 @@ export default function DatosBancariosPage() {
                   onChange={(e) => setNuevaSolicitud({...nuevaSolicitud, cbu_nuevo: e.target.value})}
                   required
                   maxLength={22}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="0000000000000000000000"
                 />
                 <p className="text-xs text-gray-500 mt-1">
@@ -192,7 +195,7 @@ export default function DatosBancariosPage() {
                   value={nuevaSolicitud.banco_nuevo}
                   onChange={(e) => setNuevaSolicitud({...nuevaSolicitud, banco_nuevo: e.target.value})}
                   required
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Banco Galicia"
                 />
               </div>
@@ -203,7 +206,7 @@ export default function DatosBancariosPage() {
                   type="text"
                   value={nuevaSolicitud.alias_nuevo}
                   onChange={(e) => setNuevaSolicitud({...nuevaSolicitud, alias_nuevo: e.target.value})}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="juan.perez.galicia"
                 />
               </div>
@@ -215,7 +218,7 @@ export default function DatosBancariosPage() {
                   onChange={(e) => setNuevaSolicitud({...nuevaSolicitud, motivo: e.target.value})}
                   required
                   rows={3}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
+                  className="w-full border border-gray-300 rounded px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Cambio de banco, actualización de datos, etc."
                 />
               </div>
@@ -230,14 +233,14 @@ export default function DatosBancariosPage() {
                 <button
                   type="submit"
                   disabled={enviando}
-                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:bg-gray-400"
+                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:bg-gray-400 transition-colors"
                 >
                   {enviando ? 'Enviando...' : 'Enviar Solicitud'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setMostrarFormulario(false)}
-                  className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
                 >
                   Cancelar
                 </button>

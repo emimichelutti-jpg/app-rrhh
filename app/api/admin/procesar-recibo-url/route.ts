@@ -18,19 +18,26 @@ function determinarQuincena(quincenaExtraida: string | null | undefined, tipoRec
   return '1ra'
 }
 
-function determinarPeriodo(periodoExtraido: string | null | undefined, tipoRecibo: string, añoActual: number): string {
+function determinarPeriodo(
+  periodoExtraido: string | null | undefined, 
+  tipoRecibo: string, 
+  añoActual: number,
+  periodoForzado?: string
+): string {
+  // 🆕 Si el usuario forzó un período manual, usarlo
+  if (periodoForzado) return periodoForzado
+  
   if (tipoRecibo === 'sac_1ra') return `${añoActual}-06`
   if (tipoRecibo === 'sac_2da') return `${añoActual}-12`
   return periodoExtraido || new Date().toISOString().slice(0, 7)
 }
 
-// ✅ NUEVA FUNCIÓN: Recortar una página específica de un PDF
+// ✅ FUNCIÓN: Recortar una página específica de un PDF
 async function recortarPaginaPDF(bufferLote: ArrayBuffer, numeroPagina: number): Promise<Uint8Array> {
   try {
     const pdfLote = await PDFDocument.load(bufferLote)
     const pdfIndividual = await PDFDocument.create()
     
-    // Copiar solo la página deseada (los índices son 0-based)
     const [paginaCopiada] = await pdfIndividual.copyPages(pdfLote, [numeroPagina - 1])
     pdfIndividual.addPage(paginaCopiada)
     
@@ -41,15 +48,27 @@ async function recortarPaginaPDF(bufferLote: ArrayBuffer, numeroPagina: number):
   }
 }
 
+// 🆕 FUNCIÓN: Obtener nombre del mes en español
+function getNombreMes(periodo: string): string {
+  if (!periodo) return ''
+  const parts = periodo.split('-')
+  if (parts.length < 2) return periodo
+  const year = parts[0]
+  const month = parts[1]
+  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  return `${meses[parseInt(month) - 1] || month} ${year}`
+}
+
 export async function POST(request: Request) {
   try {
-    const { archivos, tipo_recibo = 'normal' } = await request.json()
+    const { archivos, tipo_recibo = 'normal', periodo_forzado } = await request.json()
 
     if (!archivos || archivos.length === 0) {
       return NextResponse.json({ error: 'No hay archivos' }, { status: 400 })
     }
 
-    console.log(`📥 Procesando ${archivos.length} archivos | Tipo: ${tipo_recibo}`)
+    console.log(`📥 Procesando ${archivos.length} archivos | Tipo: ${tipo_recibo} | Período forzado: ${periodo_forzado || 'auto'}`)
 
     // Descargar los PDFs subidos
     const pdfsSubidos = await Promise.all(
@@ -132,7 +151,7 @@ export async function POST(request: Request) {
           urlFinal = urlData.publicUrl
           console.log(`✅ PDF individual creado: ${cleanFileName} (Página ${paginaRecibo})`)
         } else {
-          console.error(`️ Error subiendo PDF individual:`, uploadError)
+          console.error(`⚠️ Error subiendo PDF individual:`, uploadError)
         }
       } catch (err) {
         console.error(`⚠️ Excepción al procesar PDF para ${cuil}:`, err)
@@ -141,7 +160,7 @@ export async function POST(request: Request) {
       recibosFinales.push({
         empleado_id: empleado.id,
         cuil: cuil,
-        periodo: determinarPeriodo(recibo.periodo, tipo_recibo, añoActual),
+        periodo: determinarPeriodo(recibo.periodo, tipo_recibo, añoActual, periodo_forzado),
         quincena: determinarQuincena(recibo.quincena, tipo_recibo),
         tipo_recibo: tipo_recibo,
         neto_a_cobrar: recibo.neto_a_cobrar || 0,
@@ -165,16 +184,59 @@ export async function POST(request: Request) {
       if (!recibosUnicos.has(key)) recibosUnicos.set(key, r)
     })
 
-    // Guardar en base de datos
+    // Guardar en base de datos y crear notificaciones
     let exitosos = 0, fallidos = 0
     const erroresDetalle: string[] = []
 
     for (const recibo of recibosUnicos.values()) {
+      // 🆕 Verificar si el recibo ya existía antes del upsert
+      const { data: reciboExistente } = await supabase
+        .from('recibos_sueldo')
+        .select('id, estado_firma')
+        .eq('empleado_id', recibo.empleado_id)
+        .eq('periodo', recibo.periodo)
+        .eq('quincena', recibo.quincena)
+        .eq('tipo_recibo', recibo.tipo_recibo)
+        .maybeSingle()
+
+      const esReciboNuevo = !reciboExistente
+
+      // Upsert del recibo
       const { error } = await supabase.from('recibos_sueldo').upsert(recibo, {
         onConflict: 'empleado_id,periodo,quincena,tipo_recibo',
       })
-      if (error) { fallidos++; erroresDetalle.push(`CUIL ${recibo.cuil}: ${error.message}`) }
-      else { exitosos++ }
+      
+      if (error) { 
+        fallidos++
+        erroresDetalle.push(`CUIL ${recibo.cuil}: ${error.message}`) 
+      } else { 
+        exitosos++
+        
+        // 🆕 Crear notificación si es un recibo nuevo
+        if (esReciboNuevo) {
+          const nombreMes = getNombreMes(recibo.periodo)
+          const quincenaTexto = recibo.quincena === 'N/A' ? '' : ` (${recibo.quincena} quincena)`
+          
+          try {
+            const { error: notifError } = await supabase.from('notificaciones').insert({
+              empleado_id: recibo.empleado_id,
+              tipo: 'nuevo_recibo',
+              titulo: `📄 Nuevo recibo disponible`,
+              mensaje: `Ya podés ver y firmar tu recibo de ${nombreMes}${quincenaTexto}.`,
+              link: '/empleado/recibos',
+              leido: false
+            })
+
+            if (notifError) {
+              console.error(`⚠️ Error creando notificación para ${recibo.cuil}:`, notifError)
+            } else {
+              console.log(`🔔 Notificación enviada a ${recibo.cuil}`)
+            }
+          } catch (notifException) {
+            console.error(`⚠️ Excepción al crear notificación para ${recibo.cuil}:`, notifException)
+          }
+        }
+      }
     }
 
     console.log(`✅ Completado! Exitosos: ${exitosos}, Fallidos: ${fallidos}`)

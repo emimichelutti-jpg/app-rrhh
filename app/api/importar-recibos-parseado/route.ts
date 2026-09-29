@@ -45,14 +45,13 @@ async function procesarReciboSegunArchivo(nombreArchivo: string, archivo: File) 
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  // Variables POR DEFECTO - TODAS DEFINIDAS
+  // Variables POR DEFECTO
   let cuil = '20-12345678-9'
   let nombre = 'EMPLEADO DESCONOCIDO'
   let legajo = '001'
   let seccion = 'ADMINISTRACION'
   let categoria = 'EMPLEADO'
   
-  // Conceptos - TODOS DEFINIDOS
   const basico = 500000.00
   const basicoCantidad = 0
   const presentismo = 100000.00
@@ -89,7 +88,6 @@ async function procesarReciboSegunArchivo(nombreArchivo: string, archivo: File) 
     seccion = 'ADMINISTRACION'
     categoria = 'EMPLEADO'
   } else {
-    // Buscar primer empleado activo
     const { data } = await supabase
       .from('empleados')
       .select('id, cuil, nombre_completo, legajo, departamento, cargo')
@@ -127,32 +125,38 @@ async function procesarReciboSegunArchivo(nombreArchivo: string, archivo: File) 
     }
   }
 
-  // 🔥 NUEVO: SUBIR PDF ORIGINAL A STORAGE
+  // 🆕 Detectar si el recibo ya existía
+  const { data: reciboExistente } = await supabase
+    .from('recibos_sueldo')
+    .select('id, estado_firma')
+    .eq('empleado_id', empleado_id)
+    .eq('periodo', periodo)
+    .eq('quincena', quincena)
+    .maybeSingle()
+
+  const esReciboNuevo = !reciboExistente
+
+  // Subir PDF original a Storage
   let pdfOriginalUrl = null
   
   try {
     console.log('📤 Subiendo PDF original a Storage...')
     
-    // Convertir File a ArrayBuffer
     const arrayBuffer = await archivo.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
     
-    // Nombre único: cuil_periodo_quincena_original.pdf
     const fileName = `${cuil}_${periodo}_${quincena}_original.pdf`
     
-    // Subir a bucket 'recibos-originales'
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('recibos-originales')
       .upload(fileName, buffer, {
         contentType: 'application/pdf',
-        upsert: true // Sobrescribir si ya existe
+        upsert: true
       })
 
     if (uploadError) {
       console.error('⚠️ Error subiendo PDF original:', uploadError)
-      // No fallamos el proceso, solo logueamos
     } else {
-      // Obtener URL pública
       const { data: { publicUrl } } = supabase.storage
         .from('recibos-originales')
         .getPublicUrl(fileName)
@@ -162,10 +166,9 @@ async function procesarReciboSegunArchivo(nombreArchivo: string, archivo: File) 
     }
   } catch (error) {
     console.error('⚠️ Error procesando archivo:', error)
-    // Continuamos sin el PDF original
   }
 
-  // Guardar en Supabase - AHORA CON pdf_original_url
+  // Guardar en Supabase
   const { error: upsertError } = await supabase
     .from('recibos_sueldo')
     .upsert({
@@ -197,7 +200,7 @@ async function procesarReciboSegunArchivo(nombreArchivo: string, archivo: File) 
       redondeo,
       total_descuentos: totalDeducciones,
       neto_a_cobrar: neto,
-      pdf_original_url: pdfOriginalUrl, // ← NUEVO CAMPO
+      pdf_original_url: pdfOriginalUrl,
       estado_firma: 'pendiente'
     }, { onConflict: 'empleado_id,periodo,quincena,numero_recibo' })
 
@@ -207,6 +210,30 @@ async function procesarReciboSegunArchivo(nombreArchivo: string, archivo: File) 
   }
 
   console.log('✅ Recibo guardado con PDF original')
+
+  // 🆕 Crear notificación si es un recibo nuevo
+  if (esReciboNuevo) {
+    const nombreMes = getNombreMes(periodo)
+
+    try {
+      const { error: notifError } = await supabase.from('notificaciones').insert({
+        empleado_id: empleado_id,
+        tipo: 'nuevo_recibo',
+        titulo: `📄 Nuevo recibo disponible`,
+        mensaje: `Ya podés ver y firmar tu recibo de ${nombreMes} (${quincena} quincena).`,
+        link: '/empleado/recibos',
+        leido: false
+      })
+
+      if (notifError) {
+        console.error('⚠️ Error creando notificación:', notifError)
+      } else {
+        console.log('🔔 Notificación enviada al empleado')
+      }
+    } catch (notifException) {
+      console.error('⚠️ Excepción al crear notificación:', notifException)
+    }
+  }
   
   return { 
     numero_recibo: reciboNumero,
@@ -217,6 +244,17 @@ async function procesarReciboSegunArchivo(nombreArchivo: string, archivo: File) 
     neto,
     totalHaberes,
     totalDeducciones,
-    pdfOriginalUrl // ← Devolvemos la URL
+    pdfOriginalUrl
   }
+}
+
+function getNombreMes(periodo: string): string {
+  if (!periodo) return ''
+  const parts = periodo.split('-')
+  if (parts.length < 2) return periodo
+  const year = parts[0]
+  const month = parts[1]
+  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  return `${meses[parseInt(month) - 1] || month} ${year}`
 }

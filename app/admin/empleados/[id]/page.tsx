@@ -3,12 +3,13 @@
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, use } from 'react'
+import CargadorDocumentos from '@/components/CargadorDocumentos'
 
 const SECCIONES = [
   { id: 'personal', label: '👤 Datos Personales', icon: '👤', category: 'Información' },
   { id: 'contacto', label: '📞 Contacto', icon: '📞', category: 'Información' },
   { id: 'laboral', label: '💼 Datos Laborales', icon: '💼', category: 'Trabajo' },
-  { id: 'familia', label: 'Familia', icon: '👨‍👩‍👧', category: 'Información' },
+  { id: 'familia', label: '👨‍👩‍👧 Familia', icon: '👨‍👩‍👧', category: 'Información' },
   { id: 'bancario', label: '🏦 Datos Bancarios', icon: '🏦', category: 'Finanzas' },
   { id: 'emergencia', label: '🚨 Emergencia', icon: '🚨', category: 'Información' },
   { id: 'salud', label: '🏥 Salud', icon: '🏥', category: 'Información' },
@@ -18,6 +19,7 @@ const SECCIONES = [
   { id: 'ausencias', label: '🏖️ Ausencias', icon: '🏖️', category: 'Tiempo' },
   { id: 'asistencia', label: '🕒 Asistencia', icon: '🕒', category: 'Tiempo' },
   { id: 'performance', label: '📊 Performance', icon: '📊', category: 'Evaluación' },
+  { id: 'documentos', label: '🗂️ Documentación', icon: '🗂️', category: 'Legajo' }, // 🆕 NUEVA SECCIÓN
 ]
 
 export default function FichaEmpleadoPage({ params }: { params: Promise<{ id: string }> }) {
@@ -35,7 +37,23 @@ export default function FichaEmpleadoPage({ params }: { params: Promise<{ id: st
   const [solicitudes, setSolicitudes] = useState<any[]>([])
   const [vacaciones, setVacaciones] = useState<any[]>([])
   const [asistencia, setAsistencia] = useState<any[]>([])
+  const [documentos, setDocumentos] = useState<any[]>([]) // 🆕 Estado para documentos
   const [cargandoContenido, setCargandoContenido] = useState(false)
+
+  // 🆕 Definición de documentos obligatorios para el checklist
+  const docsRequeridos = [
+    { id: 'dni', label: 'DNI (Frente y Dorso)', icon: '🪪' },
+    { id: 'alta_arca', label: 'Alta ARCA / CUIL', icon: '📋' },
+    { id: 'cbu', label: 'Constancia de CBU', icon: '🏦' },
+    { id: 'titulo', label: 'Nivel de Estudios', icon: '🎓' },
+    { id: 'contrato', label: 'Contrato / DDJJ', icon: '📄' },
+    { id: 'obra_social', label: 'Obra Social', icon: '💊' }
+  ]
+
+  // 🆕 Calcular estado del legajo
+  const docsCargados = new Set(documentos.map((d: any) => d.tipo_documento))
+  const docsFaltantes = docsRequeridos.filter(d => !docsCargados.has(d.id))
+  const porcentaje = Math.round(((docsRequeridos.length - docsFaltantes.length) / docsRequeridos.length) * 100)
 
   useEffect(() => {
     cargarDatos()
@@ -70,7 +88,6 @@ export default function FichaEmpleadoPage({ params }: { params: Promise<{ id: st
 
     try {
       if (seccionActiva === 'ingresos') {
-        // Buscar recibos por CUIL del empleado en la tabla correcta
         const { data } = await supabase
           .from('recibos_sueldo')
           .select('*')
@@ -116,6 +133,16 @@ export default function FichaEmpleadoPage({ params }: { params: Promise<{ id: st
           .order('fecha', { ascending: false })
           .limit(100)
         setAsistencia(data || [])
+      }
+
+      // 🆕 Cargar documentos del legajo
+      if (seccionActiva === 'documentos') {
+        const { data } = await supabase
+          .from('documentos_legajo')
+          .select('*')
+          .eq('empleado_id', unwrappedParams.id)
+          .order('fecha_carga', { ascending: false })
+        setDocumentos(data || [])
       }
     } catch (error) {
       console.error('Error cargando contenido:', error)
@@ -210,7 +237,6 @@ export default function FichaEmpleadoPage({ params }: { params: Promise<{ id: st
     setEmpleado({ ...empleado, [campo]: valor })
   }
 
-  // Calcular estadísticas
   const totalIngresos = recibos.reduce((sum, r) => sum + (parseFloat(r.neto_a_cobrar) || 0), 0)
   const totalIncentivos = incentivos.reduce((sum, i) => sum + (parseFloat(i.neto) || 0), 0)
   const totalDescuentos = solicitudes.reduce((sum, s) => sum + (parseFloat(s.monto) || 0), 0)
@@ -311,505 +337,106 @@ export default function FichaEmpleadoPage({ params }: { params: Promise<{ id: st
 
         {/* Contenido de la sección */}
         <div className="bg-white rounded-2xl shadow-lg p-8">
-          {cargandoContenido && seccionActiva !== 'personal' && seccionActiva !== 'contacto' && seccionActiva !== 'laboral' && seccionActiva !== 'familia' && seccionActiva !== 'bancario' && seccionActiva !== 'emergencia' && seccionActiva !== 'salud' ? (
+          {cargandoContenido && seccionActiva !== 'personal' && seccionActiva !== 'contacto' && seccionActiva !== 'laboral' && seccionActiva !== 'familia' && seccionActiva !== 'bancario' && seccionActiva !== 'emergencia' && seccionActiva !== 'salud' && seccionActiva !== 'documentos' ? (
             <div className="flex items-center justify-center py-16">
               <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
             </div>
           ) : (
             <>
-              {/* DATOS PERSONALES */}
-              {seccionActiva === 'personal' && (
+              {/* ... (Mantené todas las secciones anteriores: personal, contacto, laboral, familia, bancario, emergencia, salud, ingresos, incentivos, descuentos, ausencias, asistencia, performance) ... */}
+              
+              {/* Para no hacer el código infinito, te muestro SOLO la nueva sección de DOCUMENTOS que debés agregar justo antes del cierre del `<>` */}
+
+              {/* 🆕 DOCUMENTACIÓN */}
+              {seccionActiva === 'documentos' && (
                 <div>
                   <div className="flex items-center gap-3 mb-8">
-                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl">👤</div>
+                    <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center text-2xl">🗂️</div>
                     <div>
-                      <h2 className="text-2xl font-bold text-gray-900">Datos Personales</h2>
-                      <p className="text-gray-500 text-sm">Información personal del empleado</p>
+                      <h2 className="text-2xl font-bold text-gray-900">Documentación del Legajo</h2>
+                      <p className="text-gray-500 text-sm">Gestión de documentos y estado del legajo</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <InfoField label="Nombre Completo" value={empleado.nombre_completo} editando={editando} onChange={(v: any) => actualizarCampo('nombre_completo', v)} />
-                    <InfoField label="DNI" value={empleado.dni} editando={editando} onChange={(v: any) => actualizarCampo('dni', v)} />
-                    <InfoField label="CUIL" value={empleado.cuil} editando={editando} onChange={(v: any) => actualizarCampo('cuil', v)} />
-                    <InfoField label="Fecha de Nacimiento" value={empleado.fecha_nacimiento} tipo="date" editando={editando} onChange={(v: any) => actualizarCampo('fecha_nacimiento', v)} />
-                    <InfoField label="Género" value={empleado.genero} tipo="select" opciones={['masculino', 'femenino', 'otro', 'no_binario']} editando={editando} onChange={(v: any) => actualizarCampo('genero', v)} />
-                    <InfoField label="Estado Civil" value={empleado.estado_civil} tipo="select" opciones={['soltero', 'casado', 'divorciado', 'viudo', 'union_libre']} editando={editando} onChange={(v: any) => actualizarCampo('estado_civil', v)} />
-                    <InfoField label="Nacionalidad" value={empleado.nacionalidad} editando={editando} onChange={(v: any) => actualizarCampo('nacionalidad', v)} full />
-                  </div>
-                </div>
-              )}
 
-              {/* CONTACTO */}
-              {seccionActiva === 'contacto' && (
-                <div>
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center text-2xl">📞</div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-900">Información de Contacto</h2>
-                      <p className="text-gray-500 text-sm">Datos de contacto y ubicación</p>
+                  {/* CHECKLIST DE ESTADO DEL LEGAJO */}
+                  <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                        <span className="text-xl">📋</span> Estado del Legajo
+                      </h3>
+                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${
+                        porcentaje === 100 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {porcentaje}% Completo
+                      </span>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <InfoField label="Domicilio" value={empleado.domicilio} editando={editando} onChange={(v: any) => actualizarCampo('domicilio', v)} full />
-                    <InfoField label="Localidad" value={empleado.localidad} editando={editando} onChange={(v: any) => actualizarCampo('localidad', v)} />
-                    <InfoField label="Provincia" value={empleado.provincia} editando={editando} onChange={(v: any) => actualizarCampo('provincia', v)} />
-                    <InfoField label="Código Postal" value={empleado.codigo_postal} editando={editando} onChange={(v: any) => actualizarCampo('codigo_postal', v)} />
-                    <InfoField label="Teléfono" value={empleado.telefono} editando={editando} onChange={(v: any) => actualizarCampo('telefono', v)} />
-                    <InfoField label="Email Empresa" value={empleado.email} tipo="email" editando={editando} onChange={(v: any) => actualizarCampo('email', v)} full />
-                    <InfoField label="Email Personal" value={empleado.email_personal} tipo="email" editando={editando} onChange={(v: any) => actualizarCampo('email_personal', v)} full />
-                  </div>
-                </div>
-              )}
 
-              {/* DATOS LABORALES */}
-              {seccionActiva === 'laboral' && (
-                <div>
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center text-2xl">💼</div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-900">Datos Laborales</h2>
-                      <p className="text-gray-500 text-sm">Información del puesto y contrato</p>
+                    <div className="w-full bg-gray-200 rounded-full h-3 mb-6">
+                      <div 
+                        className={`h-3 rounded-full transition-all duration-500 ${
+                          porcentaje === 100 ? 'bg-emerald-500' : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${porcentaje}%` }}
+                      ></div>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <InfoField label="Cargo" value={empleado.cargo} editando={editando} onChange={(v: any) => actualizarCampo('cargo', v)} />
-                    <InfoField label="Departamento" value={empleado.departamento_id} tipo="select-depto" deptos={departamentos} editando={editando} onChange={(v: any) => actualizarCampo('departamento_id', v)} />
-                    <InfoField label="Fecha de Ingreso" value={empleado.fecha_ingreso} tipo="date" editando={editando} onChange={(v: any) => actualizarCampo('fecha_ingreso', v)} />
-                    <InfoField label="Tipo de Contrato" value={empleado.tipo_contrato} tipo="select" opciones={['permanente', 'temporario', 'pasantia', 'contrato_riesgo']} editando={editando} onChange={(v: any) => actualizarCampo('tipo_contrato', v)} />
-                    <InfoField label="Período de Prueba hasta" value={empleado.periodo_prueba_hasta} tipo="date" editando={editando} onChange={(v: any) => actualizarCampo('periodo_prueba_hasta', v)} />
-                    <InfoField label="Días de Vacaciones" value={empleado.dias_vacaciones_disponibles} tipo="number" editando={editando} onChange={(v: any) => actualizarCampo('dias_vacaciones_disponibles', parseInt(v))} />
-                    <InfoField label="Horas Diarias" value={empleado.jornada_horas} tipo="number" step="0.5" editando={editando} onChange={(v: any) => actualizarCampo('jornada_horas', parseFloat(v))} />
-                    <InfoField label="Convenio Colectivo" value={empleado.convenio_colectivo} editando={editando} onChange={(v: any) => actualizarCampo('convenio_colectivo', v)} />
-                    <InfoField label="Estado" value={empleado.estado} tipo="select" opciones={['activo', 'inactivo']} editando={editando} onChange={(v: any) => actualizarCampo('estado', v)} />
-                  </div>
-                </div>
-              )}
 
-              {/* FAMILIA */}
-              {seccionActiva === 'familia' && (
-                <div>
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="w-12 h-12 bg-pink-100 rounded-xl flex items-center justify-center text-2xl">👨‍👩‍</div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-900">Información Familiar</h2>
-                      <p className="text-gray-500 text-sm">Datos del grupo familiar</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                      {docsRequeridos.map((doc) => {
+                        const estaCargado = docsCargados.has(doc.id);
+                        return (
+                          <div 
+                            key={doc.id} 
+                            className={`flex items-center gap-3 p-3 rounded-lg border ${
+                              estaCargado 
+                                ? 'bg-emerald-50 border-emerald-200' 
+                                : 'bg-gray-50 border-gray-200'
+                            }`}
+                          >
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-lg ${
+                              estaCargado ? 'bg-emerald-200' : 'bg-gray-200'
+                            }`}>
+                              {estaCargado ? '✅' : doc.icon}
+                            </div>
+                            <div className="flex-1">
+                              <p className={`text-sm font-semibold ${
+                                estaCargado ? 'text-emerald-900' : 'text-gray-700'
+                              }`}>
+                                {doc.label}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {estaCargado ? 'Documentación presente' : 'Falta presentar'}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <InfoField label="Nombre del Cónyuge" value={empleado.nombre_conyuge} editando={editando} onChange={(v: any) => actualizarCampo('nombre_conyuge', v)} />
-                    <InfoField label="Hijos a Cargo" value={empleado.hijos_a_cargo} tipo="number" editando={editando} onChange={(v: any) => actualizarCampo('hijos_a_cargo', parseInt(v))} />
-                  </div>
-                </div>
-              )}
 
-              {/* DATOS BANCARIOS */}
-              {seccionActiva === 'bancario' && (
-                <div>
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center text-2xl">🏦</div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-900">Datos Bancarios</h2>
-                      <p className="text-gray-500 text-sm">Información de cuenta para pagos</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-6">
-                    <InfoField label="Banco" value={empleado.cuenta_banco} editando={editando} onChange={(v: any) => actualizarCampo('cuenta_banco', v)} full />
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <InfoField label="CBU" value={empleado.cbu} editando={editando} onChange={(v: any) => actualizarCampo('cbu', v)} full />
-                      <InfoField label="Alias CBU" value={empleado.alias_cbu} editando={editando} onChange={(v: any) => actualizarCampo('alias_cbu', v)} full />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* EMERGENCIA */}
-              {seccionActiva === 'emergencia' && (
-                <div>
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center text-2xl">🚨</div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-900">Contacto de Emergencia</h2>
-                      <p className="text-gray-500 text-sm">Persona a contactar en caso de emergencia</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <InfoField label="Nombre del Contacto" value={empleado.contacto_emergencia_nombre} editando={editando} onChange={(v: any) => actualizarCampo('contacto_emergencia_nombre', v)} />
-                    <InfoField label="Teléfono" value={empleado.contacto_emergencia_telefono} editando={editando} onChange={(v: any) => actualizarCampo('contacto_emergencia_telefono', v)} />
-                    <InfoField label="Relación" value={empleado.contacto_emergencia_relacion} editando={editando} onChange={(v: any) => actualizarCampo('contacto_emergencia_relacion', v)} />
-                  </div>
-                </div>
-              )}
-
-              {/* SALUD */}
-              {seccionActiva === 'salud' && (
-                <div>
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="w-12 h-12 bg-teal-100 rounded-xl flex items-center justify-center text-2xl">🏥</div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-900">Información de Salud</h2>
-                      <p className="text-gray-500 text-sm">Obra social y datos médicos</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <InfoField label="Obra Social" value={empleado.obra_social} editando={editando} onChange={(v: any) => actualizarCampo('obra_social', v)} />
-                    <InfoField label="N° de Afiliado" value={empleado.numero_afiliado} editando={editando} onChange={(v: any) => actualizarCampo('numero_afiliado', v)} />
-                  </div>
-                </div>
-              )}
-
-              {/* INGRESOS */}
-              {seccionActiva === 'ingresos' && (
-                <div>
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center text-2xl">💰</div>
-                      <div>
-                        <h2 className="text-2xl font-bold text-gray-900">Historial de Ingresos</h2>
-                        <p className="text-gray-500 text-sm">Recibos de sueldo percibidos</p>
-                      </div>
-                    </div>
-                    {recibos.length > 0 && (
-                      <div className="bg-green-50 border border-green-200 rounded-xl px-6 py-3">
-                        <div className="text-sm text-green-600 font-medium">Total percibido</div>
-                        <div className="text-2xl font-bold text-green-700">${totalIngresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                    {docsFaltantes.length > 0 && (
+                      <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg">
+                        <p className="text-sm text-rose-800 font-medium">
+                          ⚠️ Documentos pendientes para completar el legajo:
+                        </p>
+                        <p className="text-sm text-rose-700 mt-1">
+                          {docsFaltantes.map(d => d.label).join(', ')}
+                        </p>
                       </div>
                     )}
                   </div>
 
-                  {recibos.length === 0 ? (
-                    <EmptyState
-                      icon="💰"
-                      title="Sin recibos registrados"
-                      message="No hay recibos de sueldo cargados para este empleado"
-                    />
-                  ) : (
-                    <div className="overflow-hidden rounded-xl border border-gray-200">
-                      <table className="w-full">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Período</th>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Quincena</th>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Sección</th>
-                            <th className="text-right px-6 py-4 text-sm font-semibold text-gray-700">Bruto</th>
-                            <th className="text-right px-6 py-4 text-sm font-semibold text-gray-700">Descuentos</th>
-                            <th className="text-right px-6 py-4 text-sm font-semibold text-gray-700">Neto</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Estado</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {recibos.map((recibo: any) => (
-                            <tr key={recibo.id} className="hover:bg-gray-50">
-                              <td className="px-6 py-4 text-sm">{recibo.periodo}</td>
-                              <td className="px-6 py-4 text-sm">{recibo.quincena || '-'}</td>
-                              <td className="px-6 py-4 text-sm">{recibo.seccion || '-'}</td>
-                              <td className="px-6 py-4 text-sm text-right">${recibo.monto_bruto?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}</td>
-                              <td className="px-6 py-4 text-sm text-right text-red-600">${recibo.total_descuentos?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}</td>
-                              <td className="px-6 py-4 text-sm text-right font-semibold">${recibo.neto_a_cobrar?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}</td>
-                              <td className="px-6 py-4 text-center">
-                                <span className={`px-2 py-1 rounded-full text-xs ${
-                                  recibo.estado === 'firmado' ? 'bg-green-100 text-green-800' :
-                                  recibo.estado === 'anulado' ? 'bg-red-100 text-red-800' :
-                                  'bg-yellow-100 text-yellow-800'
-                                }`}>
-                                  {recibo.estado}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* INCENTIVOS */}
-              {seccionActiva === 'incentivos' && (
-                <div>
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-2xl">🎯</div>
-                      <div>
-                        <h2 className="text-2xl font-bold text-gray-900">Historial de Incentivos</h2>
-                        <p className="text-gray-500 text-sm">Incentivos y bonificaciones percibidas</p>
-                      </div>
-                    </div>
-                    {incentivos.length > 0 && (
-                      <div className="bg-blue-50 border border-blue-200 rounded-xl px-6 py-3">
-                        <div className="text-sm text-blue-600 font-medium">Total en incentivos</div>
-                        <div className="text-2xl font-bold text-blue-700">${totalIncentivos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {incentivos.length === 0 ? (
-                    <EmptyState
-                      icon="🎯"
-                      title="Sin incentivos registrados"
-                      message="No hay incentivos cargados para este empleado"
-                    />
-                  ) : (
-                    <div className="overflow-hidden rounded-xl border border-gray-200">
-                      <table className="w-full">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Mes</th>
-                            <th className="text-right px-6 py-4 text-sm font-semibold text-gray-700">Monto Bruto</th>
-                            <th className="text-right px-6 py-4 text-sm font-semibold text-gray-700">Descuentos</th>
-                            <th className="text-right px-6 py-4 text-sm font-semibold text-gray-700">Neto</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {incentivos.map((inc: any) => (
-                            <tr key={inc.id} className="hover:bg-gray-50">
-                              <td className="px-6 py-4 text-sm capitalize">{inc.mes}</td>
-                              <td className="px-6 py-4 text-sm text-right">${inc.monto?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}</td>
-                              <td className="px-6 py-4 text-sm text-right text-red-600">${inc.descuentos?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}</td>
-                              <td className="px-6 py-4 text-sm text-right font-bold text-blue-600">${inc.neto?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* DESCUENTOS */}
-              {seccionActiva === 'descuentos' && (
-                <div>
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center text-2xl">💸</div>
-                      <div>
-                        <h2 className="text-2xl font-bold text-gray-900">Descuentos y Préstamos</h2>
-                        <p className="text-gray-500 text-sm">Adelantos, préstamos y otros descuentos</p>
-                      </div>
-                    </div>
-                    {solicitudes.length > 0 && (
-                      <div className="bg-orange-50 border border-orange-200 rounded-xl px-6 py-3">
-                        <div className="text-sm text-orange-600 font-medium">Total descontado</div>
-                        <div className="text-2xl font-bold text-orange-700">${totalDescuentos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {solicitudes.length === 0 ? (
-                    <EmptyState
-                      icon="💸"
-                      title="Sin descuentos registrados"
-                      message="No hay adelantos o préstamos registrados"
-                    />
-                  ) : (
-                    <div className="overflow-hidden rounded-xl border border-gray-200">
-                      <table className="w-full">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Fecha</th>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Tipo</th>
-                            <th className="text-right px-6 py-4 text-sm font-semibold text-gray-700">Monto</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Cuotas</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Estado</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {solicitudes.map((sol: any) => (
-                            <tr key={sol.id} className="hover:bg-gray-50">
-                              <td className="px-6 py-4 text-sm">{new Date(sol.created_at).toLocaleDateString('es-AR')}</td>
-                              <td className="px-6 py-4 text-sm">
-                                <span className="inline-flex px-3 py-1 rounded-lg bg-gray-100 text-gray-700 font-medium capitalize">
-                                  {sol.tipo}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 text-sm text-right font-medium text-gray-900">${sol.monto?.toLocaleString('es-AR', { minimumFractionDigits: 2 }) || '0.00'}</td>
-                              <td className="px-6 py-4 text-sm text-center text-gray-600">{sol.cuotas || '-'}</td>
-                              <td className="px-6 py-4 text-center">
-                                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${
-                                  sol.estado === 'aprobado' ? 'bg-green-100 text-green-700' :
-                                  sol.estado === 'rechazado' ? 'bg-red-100 text-red-700' :
-                                  'bg-yellow-100 text-yellow-700'
-                                }`}>
-                                  {sol.estado === 'aprobado' ? '✓ Aprobado' : sol.estado === 'rechazado' ? '✗ Rechazado' : '⏳ Pendiente'}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* AUSENCIAS */}
-              {seccionActiva === 'ausencias' && (
-                <div>
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center text-2xl">🏖️</div>
-                      <div>
-                        <h2 className="text-2xl font-bold text-gray-900">Ausencias y Licencias</h2>
-                        <p className="text-gray-500 text-sm">Vacaciones, licencias y permisos</p>
-                      </div>
-                    </div>
-                    {vacaciones.length > 0 && (
-                      <div className="bg-purple-50 border border-purple-200 rounded-xl px-6 py-3">
-                        <div className="text-sm text-purple-600 font-medium">Total días ausente</div>
-                        <div className="text-2xl font-bold text-purple-700">{diasAusencias} días</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {vacaciones.length === 0 ? (
-                    <EmptyState
-                      icon="🏖️"
-                      title="Sin ausencias registradas"
-                      message="No hay solicitudes de vacaciones o licencias"
-                    />
-                  ) : (
-                    <div className="overflow-hidden rounded-xl border border-gray-200">
-                      <table className="w-full">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Tipo</th>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Desde</th>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Hasta</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Días</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Estado</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {vacaciones.map((vac: any) => (
-                            <tr key={vac.id} className="hover:bg-gray-50">
-                              <td className="px-6 py-4 text-sm">
-                                <span className="inline-flex px-3 py-1 rounded-lg bg-purple-100 text-purple-700 font-medium capitalize">
-                                  {vac.tipo || 'vacaciones'}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 text-sm">{new Date(vac.fecha_inicio).toLocaleDateString('es-AR')}</td>
-                              <td className="px-6 py-4 text-sm">{new Date(vac.fecha_fin).toLocaleDateString('es-AR')}</td>
-                              <td className="px-6 py-4 text-sm text-center font-medium text-gray-900">{vac.dias || '-'}</td>
-                              <td className="px-6 py-4 text-center">
-                                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${
-                                  vac.estado === 'aprobado' ? 'bg-green-100 text-green-700' :
-                                  vac.estado === 'rechazado' ? 'bg-red-100 text-red-700' :
-                                  'bg-yellow-100 text-yellow-700'
-                                }`}>
-                                  {vac.estado === 'aprobado' ? '✓ Aprobado' : vac.estado === 'rechazado' ? '✗ Rechazado' : '⏳ Pendiente'}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ASISTENCIA */}
-              {seccionActiva === 'asistencia' && (
-                <div>
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center text-2xl">🕒</div>
-                      <div>
-                        <h2 className="text-2xl font-bold text-gray-900">Historial de Asistencia</h2>
-                        <p className="text-gray-500 text-sm">Registro de entrada, salida y horas trabajadas</p>
-                      </div>
-                    </div>
-                    {asistencia.length > 0 && (
-                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl px-6 py-3">
-                        <div className="text-sm text-indigo-600 font-medium">Porcentaje de asistencia</div>
-                        <div className="text-2xl font-bold text-indigo-700">{asistenciaPorcentaje}%</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {asistencia.length === 0 ? (
-                    <EmptyState
-                      icon="🕒"
-                      title="Sin registros de asistencia"
-                      message="No hay registros de asistencia cargados"
-                    />
-                  ) : (
-                    <div className="overflow-hidden rounded-xl border border-gray-200">
-                      <table className="w-full">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="text-left px-6 py-4 text-sm font-semibold text-gray-700">Fecha</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Entrada</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Almuerzo</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Salida</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Horas</th>
-                            <th className="text-center px-6 py-4 text-sm font-semibold text-gray-700">Estado</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {asistencia.map((reg: any) => (
-                            <tr key={reg.id} className="hover:bg-gray-50">
-                              <td className="px-6 py-4 text-sm">{new Date(reg.fecha).toLocaleDateString('es-AR')}</td>
-                              <td className="px-6 py-4 text-sm text-center font-mono">{reg.hora_entrada || '-'}</td>
-                              <td className="px-6 py-4 text-sm text-center font-mono">
-                                {reg.hora_almuerzo_inicio && reg.hora_almuerzo_fin 
-                                  ? `${reg.hora_almuerzo_inicio}-${reg.hora_almuerzo_fin}` 
-                                  : '-'}
-                              </td>
-                              <td className="px-6 py-4 text-sm text-center font-mono">{reg.hora_salida || '-'}</td>
-                              <td className="px-6 py-4 text-sm text-center">{reg.horas_trabajadas ? `${parseFloat(reg.horas_trabajadas).toFixed(1)}h` : '-'}</td>
-                              <td className="px-6 py-4 text-center">
-                                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${
-                                  reg.estado === 'presente' ? 'bg-green-100 text-green-700' :
-                                  reg.estado === 'tarde' ? 'bg-orange-100 text-orange-700' :
-                                  reg.estado === 'ilt' ? 'bg-red-100 text-red-700' :
-                                  'bg-gray-100 text-gray-700'
-                                }`}>
-                                  {reg.estado === 'presente' ? '✓ Presente' : 
-                                   reg.estado === 'tarde' ? '⏰ Tarde' : 
-                                   reg.estado === 'ilt' ? '🚑 ILT' : 
-                                   reg.estado}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* PERFORMANCE */}
-              {seccionActiva === 'performance' && (
-                <div className="text-center py-16">
-                  <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-purple-600 rounded-3xl flex items-center justify-center text-5xl mx-auto mb-6 shadow-xl">
-                    📊
-                  </div>
-                  <h3 className="text-3xl font-bold text-gray-900 mb-3">Módulo en Desarrollo</h3>
-                  <p className="text-gray-600 mb-8 text-lg">
-                    Próximamente: Facturación, % de Incidencia, ICN/IRC, Categorías
-                  </p>
-                  <div className="bg-gradient-to-br from-blue-50 to-purple-50 border border-blue-200 rounded-2xl p-8 max-w-2xl mx-auto text-left shadow-lg">
-                    <h4 className="text-lg font-bold text-blue-900 mb-4 flex items-center gap-2">
-                      <span>🚀</span>
-                      Funcionalidades planificadas:
-                    </h4>
-                    <ul className="space-y-3">
-                      {[
-                        'Ranking de facturación por empleado',
-                        '% de incidencia en facturación total',
-                        'ICN (Índice de Calidad Numérico) semanal',
-                        'IRC (Índice de Rendimiento/Cantidad) semanal',
-                        'Categorías A/B/C según performance',
-                        'Historial de evaluaciones'
-                      ].map((item, idx) => (
-                        <li key={idx} className="flex items-center gap-3 text-blue-800">
-                          <span className="w-6 h-6 bg-green-500 text-white rounded-full flex items-center justify-center text-sm font-bold">✓</span>
-                          <span className="font-medium">{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  {/* Componente de carga de documentos */}
+                  <CargadorDocumentos
+                    empleadoId={unwrappedParams.id}
+                    documentos={documentos}
+                    onActualizado={() => {
+                      supabase
+                        .from('documentos_legajo')
+                        .select('*')
+                        .eq('empleado_id', unwrappedParams.id)
+                        .order('fecha_carga', { ascending: false })
+                        .then(({ data }) => setDocumentos(data || []))
+                    }}
+                  />
                 </div>
               )}
             </>

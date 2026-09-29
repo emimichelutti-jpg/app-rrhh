@@ -11,7 +11,7 @@
     "restore": "node scripts/restore.js"
   },
   "dependencies": {
-    "@sentry/nextjs": "^10.68.0",
+    "@sentry/nextjs": "^10.70.0",
     "@supabase/supabase-js": "^2.110.8",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
@@ -22,7 +22,7 @@
     "pdfjs-dist": "^6.0.227",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "recharts": "^3.9.1",
+    "recharts": "^3.10.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

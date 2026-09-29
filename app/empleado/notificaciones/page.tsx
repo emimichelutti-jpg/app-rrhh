@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export default function NotificacionesPage() {
+  const router = useRouter()
   const [empleado, setEmpleado] = useState<any>(null)
   const [notificaciones, setNotificaciones] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -17,6 +19,17 @@ export default function NotificacionesPage() {
       cargarNotificaciones(emp.id)
     }
   }, [filtro])
+
+  // 🆕 Al entrar, marcar como leídas todas las no leídas
+  useEffect(() => {
+    if (empleado && notificaciones.length > 0) {
+      const sinLeer = notificaciones.filter(n => !n.leido)
+      if (sinLeer.length > 0) {
+        marcarTodasLeidas()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empleado, notificaciones.length > 0])
 
   const cargarNotificaciones = async (empleadoId: string) => {
     try {
@@ -54,11 +67,21 @@ export default function NotificacionesPage() {
     cargarNotificaciones(empleado.id)
   }
 
+  const handleNotifClick = (notif: any) => {
+    if (!notif.leido) {
+      marcarComoLeida(notif.id)
+    }
+    if (notif.link) {
+      router.push(notif.link)
+    }
+  }
+
   const getIcono = (tipo: string) => {
     switch (tipo) {
+      case 'nuevo_recibo': return '📄'
+      case 'recibo_pendiente': return '📄'
       case 'adelanto_aprobado': return '✅'
       case 'incentivo_cargado': return '🎯'
-      case 'recibo_pendiente': return '📄'
       case 'cuota_proxima': return '💰'
       case 'cbu_actualizado': return '🏦'
       case 'cbu_rechazado': return '❌'
@@ -67,49 +90,65 @@ export default function NotificacionesPage() {
     }
   }
 
+  // 🆕 Tiempo relativo (ej: "hace 2 horas", "ayer")
+  const getTiempoRelativo = (fechaISO: string) => {
+    const fecha = new Date(fechaISO)
+    const ahora = new Date()
+    const diffMs = ahora.getTime() - fecha.getTime()
+    const diffMin = Math.floor(diffMs / 60000)
+    const diffHrs = Math.floor(diffMs / 3600000)
+    const diffDias = Math.floor(diffMs / 86400000)
+
+    if (diffMin < 1) return 'recién'
+    if (diffMin < 60) return `hace ${diffMin} min`
+    if (diffHrs < 24) return `hace ${diffHrs} ${diffHrs === 1 ? 'hora' : 'horas'}`
+    if (diffDias === 1) return 'ayer'
+    if (diffDias < 7) return `hace ${diffDias} días`
+    return fecha.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+  }
+
   const noLeidas = notificaciones.filter(n => !n.leido).length
 
   if (loading) {
     return (
-      <div className="text-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-        <p className="mt-4 text-gray-600">Cargando notificaciones...</p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900 mx-auto"></div>
+          <p className="mt-4 text-slate-600">Cargando notificaciones...</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div>
-      <div className="mb-6 flex justify-between items-center">
+    <div className="pb-24">
+      <div className="mb-6 flex justify-between items-start gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Mis Notificaciones</h1>
-          <p className="text-gray-600">
-            {noLeidas > 0 ? `${noLeidas} no leídas` : 'Todas leídas'}
+          <h1 className="text-2xl font-bold text-slate-900">🔔 Mis Notificaciones</h1>
+          <p className="text-slate-600 text-sm mt-1">
+            {noLeidas > 0 ? `${noLeidas} nuevas` : 'Estás al día'}
           </p>
         </div>
-        {noLeidas > 0 && (
-          <button
-            onClick={marcarTodasLeidas}
-            className="text-sm text-blue-600 hover:text-blue-800 underline"
-          >
-            Marcar todas como leídas
-          </button>
-        )}
       </div>
 
+      {/* Filtros grandes (touch-friendly) */}
       <div className="flex gap-2 mb-6">
         <button
           onClick={() => setFiltro('todas')}
-          className={`px-4 py-2 rounded ${
-            filtro === 'todas' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          className={`flex-1 py-3 rounded-xl font-semibold text-sm transition-colors ${
+            filtro === 'todas'
+              ? 'bg-slate-900 text-white'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
           }`}
         >
           Todas
         </button>
         <button
           onClick={() => setFiltro('no-leidas')}
-          className={`px-4 py-2 rounded ${
-            filtro === 'no-leidas' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          className={`flex-1 py-3 rounded-xl font-semibold text-sm transition-colors ${
+            filtro === 'no-leidas'
+              ? 'bg-slate-900 text-white'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
           }`}
         >
           No leídas
@@ -117,33 +156,46 @@ export default function NotificacionesPage() {
       </div>
 
       {notificaciones.length === 0 ? (
-        <div className="text-center py-12 text-gray-500 bg-white rounded-lg shadow">
-          <p className="text-lg">No tenés notificaciones</p>
+        <div className="text-center py-12 bg-white rounded-2xl border border-slate-100">
+          <p className="text-5xl mb-3">📭</p>
+          <p className="text-slate-500">
+            {filtro === 'no-leidas' ? 'No tenés notificaciones nuevas' : 'No tenés notificaciones'}
+          </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {notificaciones.map((notif) => (
             <div
               key={notif.id}
-              onClick={() => !notif.leido && marcarComoLeida(notif.id)}
-              className={`bg-white rounded-lg shadow p-4 cursor-pointer transition-all ${
-                notif.leido ? 'opacity-60' : 'border-l-4 border-blue-500'
-              }`}
+              onClick={() => handleNotifClick(notif)}
+              className={`bg-white rounded-2xl p-4 transition-all active:scale-[0.99] ${
+                notif.leido
+                  ? 'opacity-60 border border-slate-100'
+                  : 'border-2 border-blue-200 shadow-sm'
+              } ${notif.link ? 'cursor-pointer' : ''}`}
             >
-              <div className="flex items-start">
-                <span className="text-2xl mr-3">{getIcono(notif.tipo)}</span>
-                <div className="flex-1">
-                  <h3 className="font-semibold">{notif.titulo}</h3>
-                  <p className="text-sm text-gray-600 mt-1">{notif.mensaje}</p>
-                  <p className="text-xs text-gray-400 mt-2">
-                    {new Date(notif.created_at).toLocaleString('es-AR')}
-                  </p>
+              <div className="flex items-start gap-3">
+                <div className={`w-11 h-11 rounded-full flex items-center justify-center text-xl flex-shrink-0 ${
+                  notif.leido ? 'bg-slate-100' : 'bg-blue-50'
+                }`}>
+                  {getIcono(notif.tipo)}
                 </div>
-                {!notif.leido && (
-                  <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
-                    Nuevo
-                  </span>
-                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-start gap-2 mb-1">
+                    <h3 className={`font-semibold text-sm ${notif.leido ? 'text-slate-700' : 'text-slate-900'}`}>
+                      {notif.titulo}
+                    </h3>
+                    <span className="text-xs text-slate-500 whitespace-nowrap flex-shrink-0">
+                      {getTiempoRelativo(notif.created_at)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-600 leading-relaxed">{notif.mensaje}</p>
+                  {notif.link && !notif.leido && (
+                    <p className="text-xs text-blue-600 font-semibold mt-2">
+                      Tocar para ir →
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           ))}

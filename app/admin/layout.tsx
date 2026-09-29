@@ -57,6 +57,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               >
                 📍 Gestionar Zonas
               </Link>
+              <Link
+                href="/admin/roles"
+                className="block px-4 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors"
+              >
+                🔐 Gestionar Roles
+              </Link>
             </div>
 
             {/* SUELDOS Y PAGOS */}
@@ -76,6 +82,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                   className="block px-4 py-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors text-sm"
                 >
                   📄 Recibos de Sueldo
+                </Link>
+                <Link
+                  href="/admin/recibos/correccion"
+                  className="block px-4 py-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors text-sm"
+                >
+                  ✏️ Corrección de Costos
                 </Link>
                 <Link
                   href="/admin/planillas"
@@ -184,18 +196,35 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
             {/* REPORTES Y DASHBOARD */}
             <div className="border-t border-slate-200 my-4"></div>
+            
             <Link
               href="/admin/dashboard"
               className="block px-4 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors"
             >
               📊 Dashboard
             </Link>
+            
+            <Link
+              href="/admin/productividad"
+              className="block px-4 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors"
+            >
+              📈 Productividad & ROI
+            </Link>
+            
+            <Link
+              href="/admin/roi-dashboard"
+              className="block px-4 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors"
+            >
+              📊 Dashboard ROI Visual
+            </Link>
+            
             <Link
               href="/admin/reportes"
               className="block px-4 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors"
             >
-              📈 Reportes Generales
+               Reportes Generales
             </Link>
+
           </nav>
         </aside>
 
