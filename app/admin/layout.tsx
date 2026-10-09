@@ -75,7 +75,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                   href="/admin/cargar-recibos"
                   className="block px-4 py-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors text-sm"
                 >
-                  📥 Cargar Recibos
+                   Cargar Recibos
                 </Link>
                 <Link
                   href="/admin/recibos"
@@ -216,6 +216,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               className="block px-4 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors"
             >
               📊 Dashboard ROI Visual
+            </Link>
+            
+            {/* ✅ NUEVO: Reporte de Costos */}
+            <Link
+              href="/admin/reportes/costos"
+              className="block px-4 py-2 text-slate-700 hover:bg-slate-100 hover:text-slate-900 rounded-md transition-colors"
+            >
+              💰 Reporte de Costos
             </Link>
             
             <Link

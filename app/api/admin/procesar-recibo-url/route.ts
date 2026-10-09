@@ -7,14 +7,28 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// ✅ Función para sanitizar nombres de archivo (evita errores de Unicode en Python)
+function sanitizeFilename(filename: string): string {
+  return filename
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Quita tildes
+    .replace(/ñ/gi, "n")             //  → N
+    .replace(/[^a-zA-Z0-9._-]/g, "_") // Otros caracteres especiales → _
+}
+
 function normalizarCUIL(cuil: string): string {
   return String(cuil).replace(/[-\s]/g, '').trim()
 }
 
 function determinarQuincena(quincenaExtraida: string | null | undefined, tipoRecibo: string): string {
+  if (tipoRecibo === 'Mensual') return 'Mensual'
+  
   const tiposIndependientes = ['sac_1ra', 'sac_2da', 'vacaciones', 'bono']
   if (tiposIndependientes.includes(tipoRecibo)) return 'N/A'
-  if (quincenaExtraida && ['1ra', '2da'].includes(quincenaExtraida)) return quincenaExtraida
+  
+  if (quincenaExtraida && ['1ra', '2da', 'Mensual'].includes(quincenaExtraida)) {
+    return quincenaExtraida
+  }
   return '1ra'
 }
 
@@ -24,7 +38,6 @@ function determinarPeriodo(
   añoActual: number,
   periodoForzado?: string
 ): string {
-  // 🆕 Si el usuario forzó un período manual, usarlo
   if (periodoForzado) return periodoForzado
   
   if (tipoRecibo === 'sac_1ra') return `${añoActual}-06`
@@ -32,15 +45,12 @@ function determinarPeriodo(
   return periodoExtraido || new Date().toISOString().slice(0, 7)
 }
 
-// ✅ FUNCIÓN: Recortar una página específica de un PDF
 async function recortarPaginaPDF(bufferLote: ArrayBuffer, numeroPagina: number): Promise<Uint8Array> {
   try {
     const pdfLote = await PDFDocument.load(bufferLote)
     const pdfIndividual = await PDFDocument.create()
-    
     const [paginaCopiada] = await pdfIndividual.copyPages(pdfLote, [numeroPagina - 1])
     pdfIndividual.addPage(paginaCopiada)
-    
     return await pdfIndividual.save()
   } catch (error) {
     console.error(`❌ Error al recortar página ${numeroPagina}:`, error)
@@ -48,84 +58,116 @@ async function recortarPaginaPDF(bufferLote: ArrayBuffer, numeroPagina: number):
   }
 }
 
-// 🆕 FUNCIÓN: Obtener nombre del mes en español
 function getNombreMes(periodo: string): string {
   if (!periodo) return ''
   const parts = periodo.split('-')
   if (parts.length < 2) return periodo
-  const year = parts[0]
-  const month = parts[1]
-  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-  return `${meses[parseInt(month) - 1] || month} ${year}`
+  const meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  return `${meses[parseInt(parts[1]) - 1] || parts[1]} ${parts[0]}`
 }
 
 export async function POST(request: Request) {
   try {
-    const { archivos, tipo_recibo = 'normal', periodo_forzado } = await request.json()
+    const body = await request.json()
+    const { archivos, tipo_recibo = 'normal', periodo_forzado } = body
+
+    console.log(' [ROUTE] Request recibido:', { 
+      cantidadArchivos: archivos?.length, 
+      tipo_recibo, 
+      periodo_forzado 
+    })
 
     if (!archivos || archivos.length === 0) {
       return NextResponse.json({ error: 'No hay archivos' }, { status: 400 })
     }
 
-    console.log(`📥 Procesando ${archivos.length} archivos | Tipo: ${tipo_recibo} | Período forzado: ${periodo_forzado || 'auto'}`)
-
-    // Descargar los PDFs subidos
+    console.log('⬇️ [ROUTE] Descargando PDFs de Supabase...')
     const pdfsSubidos = await Promise.all(
-      archivos.map(async ({ pdfUrl, fileName }: { pdfUrl: string; fileName: string }) => {
+      archivos.map(async (item: any) => {
+        const pdfUrl = typeof item === 'string' ? item : item.pdfUrl
+        const fileName = typeof item === 'string' ? item.split('/').pop() : item.fileName
+        
+        console.log(`   📄 Descargando: ${fileName}`)
         const response = await fetch(pdfUrl)
+        if (!response.ok) throw new Error(`No se pudo descargar: ${pdfUrl}`)
         const buffer = await response.arrayBuffer()
         return { fileName, pdfUrl, buffer }
       })
     )
 
-    // Enviar al backend Python para extracción de datos
+    console.log(`✅ [ROUTE] ${pdfsSubidos.length} PDFs descargados`)
+
+    // ✅ CORREGIDO: Sanitizar el nombre del archivo antes de enviarlo a Python
     const formData = new FormData()
     pdfsSubidos.forEach(({ fileName, buffer }) => {
-      formData.append('files', new Blob([buffer], { type: 'application/pdf' }), fileName)
+      const safeFileName = sanitizeFilename(fileName)
+      formData.append('files', new Blob([buffer], { type: 'application/pdf' }), safeFileName)
     })
 
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000'
-    const backendResponse = await fetch(`${backendUrl}/extraer-lote-recibos`, {
-      method: 'POST',
-      body: formData,
-    })
+    console.log(`🔗 [ROUTE] Conectando con backend: ${backendUrl}/extraer-lote-recibos`)
+
+    let backendResponse
+    try {
+      backendResponse = await fetch(`${backendUrl}/extraer-lote-recibos`, {
+        method: 'POST',
+        body: formData,
+      })
+    } catch (fetchError: any) {
+      console.error('❌ [ROUTE] Error conectando con backend Python:', fetchError.message)
+      throw new Error(`No se pudo conectar con el backend Python (${backendUrl}). Verificá que esté corriendo.`)
+    }
 
     if (!backendResponse.ok) {
-      throw new Error(`Backend respondió ${backendResponse.status}`)
+      const errorText = await backendResponse.text()
+      console.error('❌ [ROUTE] Backend respondió con error:', backendResponse.status, errorText)
+      throw new Error(`Backend Python respondió ${backendResponse.status}: ${errorText}`)
     }
 
     const recibosExtraidos: any[] = await backendResponse.json()
-    console.log(`✅ Backend extrajo ${recibosExtraidos.length} recibos`)
+    console.log(`✅ [ROUTE] Backend extrajo ${recibosExtraidos.length} recibos`)
 
     if (recibosExtraidos.length === 0) {
       return NextResponse.json({ success: true, exitosos: 0, fallidos: 0, recibos: [], errores: ['No se encontraron recibos'] })
     }
 
-    // Buscar o crear empleados
     const cuilsUnicos = [...new Set(recibosExtraidos.map((r) => normalizarCUIL(r.cuil)))]
-    const { data: empleadosExistentes } = await supabase.from('empleados').select('id, cuil, nombre_completo').in('cuil', cuilsUnicos)
+    console.log(`👥 [ROUTE] Buscando ${cuilsUnicos.length} empleados únicos...`)
+    
+    const { data: empleadosExistentes } = await supabase
+      .from('empleados')
+      .select('id, cuil, nombre_completo')
+      .in('cuil', cuilsUnicos)
 
-    const empleadosMap = new Map((empleadosExistentes || []).map((emp) => [emp.cuil, emp]))
+    const empleadosMap = new Map((empleadosExistentes || []).map((emp) => [normalizarCUIL(emp.cuil), emp]))
 
     const cuilsFaltantes = cuilsUnicos.filter((cuil) => !empleadosMap.has(cuil))
     if (cuilsFaltantes.length > 0) {
+      console.log(`➕ [ROUTE] Creando ${cuilsFaltantes.length} empleados nuevos...`)
       const nuevos = cuilsFaltantes.map((cuil) => {
         const recibo = recibosExtraidos.find((r) => normalizarCUIL(r.cuil) === cuil)
-        return { cuil, nombre_completo: recibo?.nombre_completo || 'Desconocido', email: `emp_${cuil}@movilsat.com.ar`, activo: true, rol: 'empleado' }
+        return { 
+          cuil, 
+          nombre_completo: recibo?.nombre_completo || 'Desconocido', 
+          email: `emp_${cuil}@movilsat.com.ar`, 
+          activo: true, 
+          rol: 'empleado' 
+        }
       })
       const { data: creados } = await supabase.from('empleados').insert(nuevos).select('id, cuil, nombre_completo')
-      creados?.forEach((emp) => empleadosMap.set(emp.cuil, emp))
+      creados?.forEach((emp) => empleadosMap.set(normalizarCUIL(emp.cuil), emp))
     }
 
     const añoActual = new Date().getFullYear()
     const recibosFinales = []
 
-    // ✅ PROCESAR CADA RECIBO Y CREAR PDF INDIVIDUAL
     for (const recibo of recibosExtraidos) {
       const cuil = normalizarCUIL(recibo.cuil)
       const empleado = empleadosMap.get(cuil)
-      if (!empleado) continue
+      if (!empleado) {
+        console.warn(`⚠️ [ROUTE] Empleado no encontrado para CUIL: ${cuil}`)
+        continue
+      }
 
       const nombreArchivo = String(recibo.archivo_origen || "").toLowerCase()
       const archivoCorrecto = pdfsSubidos.find((a) => {
@@ -137,10 +179,7 @@ export async function POST(request: Request) {
       const paginaRecibo = recibo.pagina || 1
 
       try {
-        // ✅ RECORTAR SOLO LA PÁGINA CORRESPONDIENTE
         const bufferIndividual = await recortarPaginaPDF(archivoCorrecto.buffer, paginaRecibo)
-        
-        // Subir el PDF individual a Supabase
         const cleanFileName = `individuales/${cuil}_${Date.now()}.pdf`
         const { error: uploadError } = await supabase.storage
           .from('recibos-originales')
@@ -149,12 +188,9 @@ export async function POST(request: Request) {
         if (!uploadError) {
           const { data: urlData } = supabase.storage.from('recibos-originales').getPublicUrl(cleanFileName)
           urlFinal = urlData.publicUrl
-          console.log(`✅ PDF individual creado: ${cleanFileName} (Página ${paginaRecibo})`)
-        } else {
-          console.error(`⚠️ Error subiendo PDF individual:`, uploadError)
         }
       } catch (err) {
-        console.error(`⚠️ Excepción al procesar PDF para ${cuil}:`, err)
+        console.error(`⚠️ [ROUTE] Excepción al procesar PDF para ${cuil}:`, err)
       }
 
       recibosFinales.push({
@@ -177,19 +213,16 @@ export async function POST(request: Request) {
       })
     }
 
-    // Eliminar duplicados
     const recibosUnicos = new Map()
     recibosFinales.forEach((r) => {
       const key = `${r.empleado_id}-${r.periodo}-${r.quincena}-${r.tipo_recibo}`
       if (!recibosUnicos.has(key)) recibosUnicos.set(key, r)
     })
 
-    // Guardar en base de datos y crear notificaciones
     let exitosos = 0, fallidos = 0
     const erroresDetalle: string[] = []
 
     for (const recibo of recibosUnicos.values()) {
-      // 🆕 Verificar si el recibo ya existía antes del upsert
       const { data: reciboExistente } = await supabase
         .from('recibos_sueldo')
         .select('id, estado_firma')
@@ -201,7 +234,6 @@ export async function POST(request: Request) {
 
       const esReciboNuevo = !reciboExistente
 
-      // Upsert del recibo
       const { error } = await supabase.from('recibos_sueldo').upsert(recibo, {
         onConflict: 'empleado_id,periodo,quincena,tipo_recibo',
       })
@@ -211,35 +243,28 @@ export async function POST(request: Request) {
         erroresDetalle.push(`CUIL ${recibo.cuil}: ${error.message}`) 
       } else { 
         exitosos++
-        
-        // 🆕 Crear notificación si es un recibo nuevo
         if (esReciboNuevo) {
           const nombreMes = getNombreMes(recibo.periodo)
-          const quincenaTexto = recibo.quincena === 'N/A' ? '' : ` (${recibo.quincena} quincena)`
+          const quincenaTexto = recibo.quincena === 'N/A' || recibo.quincena === 'Mensual' ? '' : ` (${recibo.quincena} quincena)`
           
-          try {
-            const { error: notifError } = await supabase.from('notificaciones').insert({
-              empleado_id: recibo.empleado_id,
-              tipo: 'nuevo_recibo',
-              titulo: `📄 Nuevo recibo disponible`,
-              mensaje: `Ya podés ver y firmar tu recibo de ${nombreMes}${quincenaTexto}.`,
-              link: '/empleado/recibos',
-              leido: false
-            })
-
-            if (notifError) {
-              console.error(`⚠️ Error creando notificación para ${recibo.cuil}:`, notifError)
-            } else {
-              console.log(`🔔 Notificación enviada a ${recibo.cuil}`)
-            }
-          } catch (notifException) {
-            console.error(`⚠️ Excepción al crear notificación para ${recibo.cuil}:`, notifException)
+          // ✅ CORREGIDO: Manejo correcto de errores de Supabase (sin .catch())
+          const { error: notifError } = await supabase.from('notificaciones').insert({
+            empleado_id: recibo.empleado_id,
+            tipo: 'nuevo_recibo',
+            titulo: ` Nuevo recibo disponible`,
+            mensaje: `Ya podés ver y firmar tu recibo de ${nombreMes}${quincenaTexto}.`,
+            link: '/empleado/recibos',
+            leido: false
+          })
+          
+          if (notifError) {
+            console.error(`⚠️ Error creando notificación para ${recibo.cuil}:`, notifError.message)
           }
         }
       }
     }
 
-    console.log(`✅ Completado! Exitosos: ${exitosos}, Fallidos: ${fallidos}`)
+    console.log(`✅ [ROUTE] Completado! Exitosos: ${exitosos}, Fallidos: ${fallidos}`)
 
     return NextResponse.json({
       success: true, exitosos, fallidos,
@@ -250,7 +275,14 @@ export async function POST(request: Request) {
       errores: erroresDetalle,
     })
   } catch (error: any) {
-    console.error('⌛ Error general:', error)
-    return NextResponse.json({ success: false, error: error.message, exitosos: 0, fallidos: 1, recibos: [], errores: [error.message] }, { status: 500 })
+    console.error('❌ [ROUTE] Error general:', error)
+    return NextResponse.json({ 
+      success: false, 
+      error: error.message || 'Error desconocido', 
+      exitosos: 0, 
+      fallidos: 1, 
+      recibos: [], 
+      errores: [error.message] 
+    }, { status: 500 })
   }
 }

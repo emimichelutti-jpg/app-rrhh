@@ -9,6 +9,15 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+// Función para limpiar nombres de archivo (evita errores con Ñ, tildes, etc.)
+const sanitizeFilename = (filename: string): string => {
+  return filename
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Quita tildes
+    .replace(/ñ/gi, "n")             // Ñ → N
+    .replace(/[^a-zA-Z0-9._-]/g, "_") // Otros caracteres especiales → _
+}
+
 export default function CargarRecibosPage() {
   const router = useRouter()
   const [archivos, setArchivos] = useState<File[]>([])
@@ -16,9 +25,9 @@ export default function CargarRecibosPage() {
   const [progreso, setProgreso] = useState(0)
   const [resultados, setResultados] = useState<any>(null)
   const [error, setError] = useState('')
-  const [tipoRecibo, setTipoRecibo] = useState('normal')
+  const [tipoRecibo, setTipoRecibo] = useState('1ra') // Default a 1ra quincena
   
-  // ✅ NUEVO: Selector de período manual
+  // Selector de período manual
   const [periodoForzado, setPeriodoForzado] = useState(new Date().toISOString().slice(0, 7))
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -43,9 +52,12 @@ export default function CargarRecibosPage() {
     try {
       console.log(`📤 Subiendo ${archivos.length} archivos...`)
 
+      // 1. Subir archivos a Supabase con nombre sanitizado
       const uploads = await Promise.all(
         archivos.map(async (archivo) => {
-          const fileName = `temp_${Date.now()}_${archivo.name.replace(/\s+/g, '_')}`
+          const cleanName = sanitizeFilename(archivo.name)
+          const fileName = `temp_${Date.now()}_${cleanName}`
+          
           const { error: uploadError } = await supabase.storage
             .from('recibos-originales')
             .upload(fileName, archivo, { contentType: 'application/pdf', upsert: false })
@@ -60,13 +72,18 @@ export default function CargarRecibosPage() {
       setProgreso(30)
       console.log('✅ Archivos subidos, procesando...')
 
+      // 2. Extraer solo las URLs para enviar al backend
+      const archivosUrls = uploads.map(u => u.pdfUrl)
+
+      // 3. Enviar al backend (Next.js API Route o directo a Python)
       const response = await fetch('/api/admin/procesar-recibo-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           archivos: uploads,
-          tipo_recibo: tipoRecibo,
-          periodo_forzado: periodoForzado || undefined // ✅ Enviamos el período forzado
+          tipo_recibo: tipoRecibo, // Envía '1ra', '2da', 'Mensual', etc.
+          periodo_forzado: periodoForzado,      // ✅ Usamos la variable de estado existente
+          quincena_forzada: tipoRecibo          // ✅ Envía "1ra", "2da", "Mensual", etc.
         })
       })
 
@@ -119,9 +136,11 @@ export default function CargarRecibosPage() {
             <select
               value={tipoRecibo}
               onChange={(e) => setTipoRecibo(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full p-2 border border-gray-300 rounded"
             >
-              <option value="normal">Sueldo Normal</option>
+              <option value="1ra">Primera Quincena</option>
+              <option value="2da">Segunda Quincena</option>
+              <option value="Mensual">Mensual</option>
               <option value="sac_1ra">SAC 1ra Cuota (Junio)</option>
               <option value="sac_2da">SAC 2da Cuota (Diciembre)</option>
               <option value="vacaciones">Pago de Vacaciones</option>
@@ -129,7 +148,6 @@ export default function CargarRecibosPage() {
             </select>
           </div>
           
-          {/* ✅ NUEVO: Selector de Período */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Período (Opcional)
