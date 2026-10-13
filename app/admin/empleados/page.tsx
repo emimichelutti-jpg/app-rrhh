@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { useRouter } from 'next/navigation'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,14 +10,15 @@ const supabase = createClient(
 
 interface Empleado {
   id: string
+  cuil: string
   nombre_completo: string
-  legajo: string | null
-  cuil: string | null
-  zona_id: string | null
-  cargo: string | null
-  fecha_ingreso: string | null
+  email: string
+  localidad: string
+  zona_id: string
+  rol: string
   activo: boolean
-  email?: string
+  fecha_ingreso: string
+  created_at: string
 }
 
 interface Zona {
@@ -26,28 +26,26 @@ interface Zona {
   nombre: string
 }
 
-export default function GestionEmpleadosPage() {
-  const router = useRouter()
+export default function EmpleadosPage() {
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [zonas, setZonas] = useState<Zona[]>([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
-  const [filtroZona, setFiltroZona] = useState('')
-  const [filtroEstado, setFiltroEstado] = useState('')
-  const [pagina, setPagina] = useState(1)
-  const [porPagina] = useState(15)
+  const [filtroActivo, setFiltroActivo] = useState<'todos' | 'activo' | 'inactivo'>('todos')
+  const [empleadoEditando, setEmpleadoEditando] = useState<Empleado | null>(null)
+  const [mostrarModal, setMostrarModal] = useState(false)
 
   useEffect(() => {
     cargarDatos()
   }, [])
 
   const cargarDatos = async () => {
+    setLoading(true)
     try {
-      setLoading(true)
       const { data: empleadosData } = await supabase
         .from('empleados')
         .select('*')
-        .order('nombre_completo', { ascending: true })
+        .order('nombre_completo')
 
       const { data: zonasData } = await supabase
         .from('zonas')
@@ -57,311 +55,259 @@ export default function GestionEmpleadosPage() {
       setEmpleados(empleadosData || [])
       setZonas(zonasData || [])
     } catch (error) {
-      console.error('Error cargando:', error)
+      console.error('Error cargando datos:', error)
     } finally {
       setLoading(false)
     }
   }
 
-  // Filtrar empleados
+  const handleEditar = (empleado: Empleado) => {
+    setEmpleadoEditando(empleado)
+    setMostrarModal(true)
+  }
+
+  const handleGuardar = async () => {
+    if (!empleadoEditando) return
+
+    try {
+      const { error } = await supabase
+        .from('empleados')
+        .update({
+          nombre_completo: empleadoEditando.nombre_completo,
+          cuil: empleadoEditando.cuil,
+          email: empleadoEditando.email,
+          localidad: empleadoEditando.localidad,
+          zona_id: empleadoEditando.zona_id,
+          rol: empleadoEditando.rol,
+          activo: empleadoEditando.activo,
+          fecha_ingreso: empleadoEditando.fecha_ingreso
+        })
+        .eq('id', empleadoEditando.id)
+
+      if (error) throw error
+
+      alert('✅ Empleado actualizado correctamente')
+      setMostrarModal(false)
+      setEmpleadoEditando(null)
+      cargarDatos()
+    } catch (error: any) {
+      console.error('Error actualizando empleado:', error)
+      alert(`❌ Error: ${error.message}`)
+    }
+  }
+
   const empleadosFiltrados = empleados.filter(emp => {
-    const coincideBusqueda = 
-      emp.nombre_completo?.toLowerCase().includes(busqueda.toLowerCase()) ||
-      emp.legajo?.includes(busqueda) ||
-      emp.cuil?.includes(busqueda)
-    
-    const coincideZona = !filtroZona || emp.zona_id === filtroZona
-    const coincideEstado = 
-      !filtroEstado || 
-      (filtroEstado === 'activo' && emp.activo) ||
-      (filtroEstado === 'inactivo' && !emp.activo)
-
-    return coincideBusqueda && coincideZona && coincideEstado
+    const coincideBusqueda = emp.nombre_completo.toLowerCase().includes(busqueda.toLowerCase()) ||
+                            emp.cuil.includes(busqueda)
+    const coincideActivo = filtroActivo === 'todos' || 
+                          (filtroActivo === 'activo' && emp.activo) ||
+                          (filtroActivo === 'inactivo' && !emp.activo)
+    return coincideBusqueda && coincideActivo
   })
-
-  // Paginación
-  const totalPaginas = Math.ceil(empleadosFiltrados.length / porPagina)
-  const empleadosPagina = empleadosFiltrados.slice(
-    (pagina - 1) * porPagina,
-    pagina * porPagina
-  )
-
-  // Stats
-  const totalEmpleados = empleados.length
-  const activos = empleados.filter(e => e.activo).length
-  const inactivos = totalEmpleados - activos
-
-  // Obtener nombre de zona
-  const getZonaNombre = (zonaId: string | null) => {
-    return zonas.find(z => z.id === zonaId)?.nombre || 'Sin zona'
-  }
-
-  // Obtener iniciales para avatar
-  const getIniciales = (nombre: string) => {
-    return nombre
-      .split(' ')
-      .map(n => n[0])
-      .slice(0, 2)
-      .join('')
-      .toUpperCase()
-  }
-
-  // Color de avatar según zona
-  const getAvatarColor = (zonaId: string | null) => {
-    const colors = [
-      'bg-blue-500', 'bg-emerald-500', 'bg-amber-500', 
-      'bg-rose-500', 'bg-purple-500', 'bg-cyan-500'
-    ]
-    const index = zonas.findIndex(z => z.id === zonaId)
-    return colors[index % colors.length] || 'bg-slate-500'
-  }
 
   if (loading) {
     return (
-      <div className="p-8 text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900 mx-auto"></div>
-        <p className="mt-4 text-slate-600">Cargando empleados...</p>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     )
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">Gestión de Empleados</h1>
-          <p className="text-slate-600 mt-1">
-            {activos} activos · {inactivos} inactivos · {totalEmpleados} total
-          </p>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">👥 Gestionar Empleados</h1>
+          <p className="text-gray-600 mt-1">Administra la información de todos los empleados</p>
         </div>
-        <button
-          onClick={() => router.push('/admin/empleados/nuevo')}
-          className="bg-slate-900 text-white px-6 py-3 rounded-lg hover:bg-slate-800 flex items-center gap-2 font-medium"
-        >
-          <span className="text-xl">+</span>
-          Nuevo Empleado
-        </button>
-      </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between">
+        {/* Filtros */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <p className="text-sm text-slate-600">Total Empleados</p>
-              <p className="text-2xl font-bold text-slate-900">{totalEmpleados}</p>
+              <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Buscar</label>
+              <input
+                type="text"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                placeholder="Nombre o CUIL..."
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
             </div>
-            <div className="text-3xl">👥</div>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Activos</p>
-              <p className="text-2xl font-bold text-emerald-600">{activos}</p>
+              <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Estado</label>
+              <select
+                value={filtroActivo}
+                onChange={(e) => setFiltroActivo(e.target.value as any)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="todos">Todos</option>
+                <option value="activo">Activos</option>
+                <option value="inactivo">Inactivos</option>
+              </select>
             </div>
-            <div className="text-3xl">✅</div>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Inactivos</p>
-              <p className="text-2xl font-bold text-slate-400">{inactivos}</p>
-            </div>
-            <div className="text-3xl">⏸️</div>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-lg shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Zonas</p>
-              <p className="text-2xl font-bold text-slate-900">{zonas.length}</p>
-            </div>
-            <div className="text-3xl">📍</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filtros */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 mb-6">
-        <div className="flex gap-4 flex-wrap">
-          <div className="flex-1 min-w-[250px]">
-            <input
-              type="text"
-              placeholder=" Buscar por nombre, legajo o CUIL..."
-              value={busqueda}
-              onChange={(e) => { setBusqueda(e.target.value); setPagina(1) }}
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-transparent"
-            />
-          </div>
-          
-          <select
-            value={filtroZona}
-            onChange={(e) => { setFiltroZona(e.target.value); setPagina(1) }}
-            className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500"
-          >
-            <option value="">Todas las zonas</option>
-            {zonas.map(zona => (
-              <option key={zona.id} value={zona.id}>{zona.nombre}</option>
-            ))}
-          </select>
-
-          <select
-            value={filtroEstado}
-            onChange={(e) => { setFiltroEstado(e.target.value); setPagina(1) }}
-            className="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-500"
-          >
-            <option value="">Todos los estados</option>
-            <option value="activo">Activos</option>
-            <option value="inactivo">Inactivos</option>
-          </select>
-
-          {(busqueda || filtroZona || filtroEstado) && (
-            <button
-              onClick={() => { setBusqueda(''); setFiltroZona(''); setFiltroEstado('') }}
-              className="px-4 py-2 text-slate-600 hover:text-slate-900"
-            >
-              ✕ Limpiar
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Tabla */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Empleado
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Legajo
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Zona
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Cargo
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Ingreso
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Estado
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {empleadosPagina.map(emp => (
-                <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full ${getAvatarColor(emp.zona_id)} flex items-center justify-center text-white font-semibold text-sm`}>
-                        {getIniciales(emp.nombre_completo)}
-                      </div>
-                      <div>
-                        <div className="font-medium text-slate-900">{emp.nombre_completo}</div>
-                        <div className="text-xs text-slate-500">CUIL: {emp.cuil || '-'}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="font-mono text-sm text-slate-700">
-                      {emp.legajo || '-'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
-                      {getZonaNombre(emp.zona_id)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-700">
-                    {emp.cargo || '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-700">
-                    {emp.fecha_ingreso 
-                      ? new Date(emp.fecha_ingreso).toLocaleDateString('es-AR')
-                      : '-'
-                    }
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      emp.activo 
-                        ? 'bg-emerald-100 text-emerald-800' 
-                        : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {emp.activo ? 'Activo' : 'Inactivo'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => router.push(`/admin/empleados/${emp.id}`)}
-                        className="text-slate-600 hover:text-slate-900 p-1"
-                        title="Ver detalles"
-                      >
-                        👁️
-                      </button>
-                      <button
-                        onClick={() => router.push(`/admin/empleados/${emp.id}/editar`)}
-                        className="text-slate-600 hover:text-blue-600 p-1"
-                        title="Editar"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => router.push(`/admin/recibos?empleado=${emp.id}`)}
-                        className="text-slate-600 hover:text-emerald-600 p-1"
-                        title="Ver recibos"
-                      >
-                        📄
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {empleadosPagina.length === 0 && (
+        {/* Tabla */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
-                    No se encontraron empleados con los filtros seleccionados
-                  </td>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Nombre</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">CUIL</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Localidad</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Rol</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Estado</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Acciones</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {empleadosFiltrados.map((emp) => (
+                  <tr key={emp.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{emp.nombre_completo}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600 font-mono">{emp.cuil}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{emp.localidad || '-'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{emp.rol || '-'}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        emp.activo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {emp.activo ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={() => handleEditar(emp)}
+                        className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                      >
+                        ✏️ Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* Paginación */}
-        {totalPaginas > 1 && (
-          <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between">
-            <div className="text-sm text-slate-600">
-              Mostrando {(pagina - 1) * porPagina + 1} a {Math.min(pagina * porPagina, empleadosFiltrados.length)} de {empleadosFiltrados.length} empleados
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPagina(p => Math.max(1, p - 1))}
-                disabled={pagina === 1}
-                className="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                ← Anterior
-              </button>
-              <button
-                onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))}
-                disabled={pagina === totalPaginas}
-                className="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Siguiente →
-              </button>
+        {/* Modal de Edición */}
+        {mostrarModal && empleadoEditando && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6">
+                <h2 className="text-2xl font-bold">✏️ Editar Empleado</h2>
+                <p className="text-blue-100 mt-1">Modificá la información del empleado</p>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre Completo *</label>
+                  <input
+                    type="text"
+                    value={empleadoEditando.nombre_completo}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, nombre_completo: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">CUIL *</label>
+                  <input
+                    type="text"
+                    value={empleadoEditando.cuil}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, cuil: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
+                  <input
+                    type="email"
+                    value={empleadoEditando.email}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, email: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Localidad</label>
+                  <input
+                    type="text"
+                    value={empleadoEditando.localidad}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, localidad: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Zona</label>
+                  <select
+                    value={empleadoEditando.zona_id}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, zona_id: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Seleccionar zona...</option>
+                    {zonas.map(zona => (
+                      <option key={zona.id} value={zona.id}>{zona.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Rol</label>
+                  <select
+                    value={empleadoEditando.rol}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, rol: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="empleado">Empleado</option>
+                    <option value="admin">Administrador</option>
+                    <option value="supervisor">Supervisor</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Fecha de Ingreso</label>
+                  <input
+                    type="date"
+                    value={empleadoEditando.fecha_ingreso}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, fecha_ingreso: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="activo"
+                    checked={empleadoEditando.activo}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, activo: e.target.checked})}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <label htmlFor="activo" className="text-sm font-medium text-gray-700">
+                    Empleado activo
+                  </label>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 p-6 flex gap-3">
+                <button
+                  onClick={handleGuardar}
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                >
+                  💾 Guardar Cambios
+                </button>
+                <button
+                  onClick={() => { setMostrarModal(false); setEmpleadoEditando(null); }}
+                  className="px-6 py-3 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
             </div>
           </div>
         )}
