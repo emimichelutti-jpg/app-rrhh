@@ -18,6 +18,9 @@ interface Empleado {
   rol: string
   activo: boolean
   fecha_ingreso: string
+  legajo?: string
+  categoria?: string
+  obra_social?: string
   created_at: string
 }
 
@@ -33,7 +36,9 @@ export default function EmpleadosPage() {
   const [busqueda, setBusqueda] = useState('')
   const [filtroActivo, setFiltroActivo] = useState<'todos' | 'activo' | 'inactivo'>('todos')
   const [empleadoEditando, setEmpleadoEditando] = useState<Empleado | null>(null)
-  const [mostrarModal, setMostrarModal] = useState(false)
+  const [empleadoViendo, setEmpleadoViendo] = useState<Empleado | null>(null)
+  const [mostrarModalEditar, setMostrarModalEditar] = useState(false)
+  const [mostrarModalVer, setMostrarModalVer] = useState(false)
 
   useEffect(() => {
     cargarDatos()
@@ -61,9 +66,14 @@ export default function EmpleadosPage() {
     }
   }
 
+  const handleVer = (empleado: Empleado) => {
+    setEmpleadoViendo(empleado)
+    setMostrarModalVer(true)
+  }
+
   const handleEditar = (empleado: Empleado) => {
     setEmpleadoEditando(empleado)
-    setMostrarModal(true)
+    setMostrarModalEditar(true)
   }
 
   const handleGuardar = async () => {
@@ -80,14 +90,17 @@ export default function EmpleadosPage() {
           zona_id: empleadoEditando.zona_id,
           rol: empleadoEditando.rol,
           activo: empleadoEditando.activo,
-          fecha_ingreso: empleadoEditando.fecha_ingreso
+          fecha_ingreso: empleadoEditando.fecha_ingreso,
+          legajo: empleadoEditando.legajo,
+          categoria: empleadoEditando.categoria,
+          obra_social: empleadoEditando.obra_social
         })
         .eq('id', empleadoEditando.id)
 
       if (error) throw error
 
       alert('✅ Empleado actualizado correctamente')
-      setMostrarModal(false)
+      setMostrarModalEditar(false)
       setEmpleadoEditando(null)
       cargarDatos()
     } catch (error: any) {
@@ -98,12 +111,23 @@ export default function EmpleadosPage() {
 
   const empleadosFiltrados = empleados.filter(emp => {
     const coincideBusqueda = emp.nombre_completo.toLowerCase().includes(busqueda.toLowerCase()) ||
-                            emp.cuil.includes(busqueda)
+                            emp.cuil.includes(busqueda) ||
+                            (emp.legajo && emp.legajo.includes(busqueda))
     const coincideActivo = filtroActivo === 'todos' || 
                           (filtroActivo === 'activo' && emp.activo) ||
                           (filtroActivo === 'inactivo' && !emp.activo)
     return coincideBusqueda && coincideActivo
   })
+
+  const getZonaNombre = (zona_id: string) => {
+    const zona = zonas.find(z => z.id === zona_id)
+    return zona?.nombre || '-'
+  }
+
+  const formatDate = (date: string) => {
+    if (!date) return '-'
+    return new Date(date).toLocaleDateString('es-AR')
+  }
 
   if (loading) {
     return (
@@ -131,7 +155,7 @@ export default function EmpleadosPage() {
                 type="text"
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
-                placeholder="Nombre o CUIL..."
+                placeholder="Nombre, CUIL o Legajo..."
                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -158,6 +182,7 @@ export default function EmpleadosPage() {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Nombre</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">CUIL</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Legajo</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Localidad</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Rol</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Estado</th>
@@ -169,6 +194,7 @@ export default function EmpleadosPage() {
                   <tr key={emp.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{emp.nombre_completo}</td>
                     <td className="px-4 py-3 text-sm text-gray-600 font-mono">{emp.cuil}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{emp.legajo || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{emp.localidad || '-'}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{emp.rol || '-'}</td>
                     <td className="px-4 py-3 text-center">
@@ -179,12 +205,22 @@ export default function EmpleadosPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => handleEditar(emp)}
-                        className="text-blue-600 hover:text-blue-800 font-medium text-sm"
-                      >
-                        ✏️ Editar
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleVer(emp)}
+                          className="text-gray-600 hover:text-gray-800 font-medium text-sm"
+                          title="Ver ficha completa"
+                        >
+                          👁️
+                        </button>
+                        <button
+                          onClick={() => handleEditar(emp)}
+                          className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                          title="Editar"
+                        >
+                          ✏️
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -193,8 +229,132 @@ export default function EmpleadosPage() {
           </div>
         </div>
 
+        {/* Modal de Vista - Ficha Completa */}
+        {mostrarModalVer && empleadoViendo && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="text-2xl font-bold">📋 Ficha del Empleado</h2>
+                    <p className="text-blue-100 mt-1">{empleadoViendo.nombre_completo}</p>
+                  </div>
+                  <button
+                    onClick={() => { setMostrarModalVer(false); setEmpleadoViendo(null); }}
+                    className="text-white hover:bg-white/20 rounded-lg p-2 transition-colors"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6">
+                {/* Información Personal */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b border-gray-200 pb-2">
+                    📝 Información Personal
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Nombre Completo</label>
+                      <p className="text-sm text-gray-900 font-medium">{empleadoViendo.nombre_completo}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">CUIL</label>
+                      <p className="text-sm text-gray-900 font-mono">{empleadoViendo.cuil}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Email</label>
+                      <p className="text-sm text-gray-900">{empleadoViendo.email || '-'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Legajo</label>
+                      <p className="text-sm text-gray-900">{empleadoViendo.legajo || '-'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Información Laboral */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b border-gray-200 pb-2">
+                    💼 Información Laboral
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Localidad</label>
+                      <p className="text-sm text-gray-900">{empleadoViendo.localidad || '-'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Zona</label>
+                      <p className="text-sm text-gray-900">{getZonaNombre(empleadoViendo.zona_id)}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Rol</label>
+                      <p className="text-sm text-gray-900">{empleadoViendo.rol || '-'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Categoría</label>
+                      <p className="text-sm text-gray-900">{empleadoViendo.categoria || '-'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Obra Social</label>
+                      <p className="text-sm text-gray-900">{empleadoViendo.obra_social || '-'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Fecha de Ingreso</label>
+                      <p className="text-sm text-gray-900">{formatDate(empleadoViendo.fecha_ingreso)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Estado */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b border-gray-200 pb-2">
+                    📊 Estado
+                  </h3>
+                  <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                      empleadoViendo.activo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                    }`}>
+                      {empleadoViendo.activo ? '✅ Activo' : '❌ Inactivo'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Metadata */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-xs text-gray-500">
+                    Registrado el: {formatDate(empleadoViendo.created_at)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 p-6 flex gap-3">
+                <button
+                  onClick={() => {
+                    setMostrarModalVer(false)
+                    setEmpleadoViendo(null)
+                    handleEditar(empleadoViendo)
+                  }}
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                >
+                  ✏️ Editar Empleado
+                </button>
+                <button
+                  onClick={() => { setMostrarModalVer(false); setEmpleadoViendo(null); }}
+                  className="px-6 py-3 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Modal de Edición */}
-        {mostrarModal && empleadoEditando && (
+        {mostrarModalEditar && empleadoEditando && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6">
@@ -219,6 +379,16 @@ export default function EmpleadosPage() {
                     type="text"
                     value={empleadoEditando.cuil}
                     onChange={(e) => setEmpleadoEditando({...empleadoEditando, cuil: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Legajo</label>
+                  <input
+                    type="text"
+                    value={empleadoEditando.legajo || ''}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, legajo: e.target.value})}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
@@ -271,6 +441,28 @@ export default function EmpleadosPage() {
                 </div>
 
                 <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Categoría</label>
+                  <input
+                    type="text"
+                    value={empleadoEditando.categoria || ''}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, categoria: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Ej: Administrativo Cat A"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Obra Social</label>
+                  <input
+                    type="text"
+                    value={empleadoEditando.obra_social || ''}
+                    onChange={(e) => setEmpleadoEditando({...empleadoEditando, obra_social: e.target.value})}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Ej: OSECAC"
+                  />
+                </div>
+
+                <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Fecha de Ingreso</label>
                   <input
                     type="date"
@@ -302,7 +494,7 @@ export default function EmpleadosPage() {
                   💾 Guardar Cambios
                 </button>
                 <button
-                  onClick={() => { setMostrarModal(false); setEmpleadoEditando(null); }}
+                  onClick={() => { setMostrarModalEditar(false); setEmpleadoEditando(null); }}
                   className="px-6 py-3 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Cancelar
