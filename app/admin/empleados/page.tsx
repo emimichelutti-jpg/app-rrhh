@@ -182,7 +182,7 @@ export default function EmpleadosPage() {
       cargarDatos()
     } catch (error: any) {
       console.error('Error actualizando empleado:', error)
-      alert(`❌ Error: ${error.message}`)
+      alert(` Error: ${error.message}`)
     }
   }
 
@@ -254,7 +254,7 @@ export default function EmpleadosPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900"> Gestionar Empleados</h1>
+          <h1 className="text-3xl font-bold text-gray-900">👥 Gestionar Empleados</h1>
           <p className="text-gray-600 mt-1">Administra la información de todos los empleados</p>
         </div>
 
@@ -317,17 +317,17 @@ export default function EmpleadosPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-2">
+                      <div className="flex items-center justify-center gap-3">
                         <button
                           onClick={() => handleVer(emp)}
-                          className="text-gray-600 hover:text-gray-800 font-medium text-sm"
+                          className="text-blue-600 hover:text-blue-800 font-medium text-sm"
                           title="Ver ficha completa"
                         >
-                          ️
+                          👁️
                         </button>
                         <button
                           onClick={() => handleEditar(emp)}
-                          className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                          className="text-orange-600 hover:text-orange-800 font-medium text-sm"
                           title="Editar"
                         >
                           ✏️
@@ -459,7 +459,7 @@ export default function EmpleadosPage() {
                   {/* HISTORIAL DE RECIBOS */}
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b border-gray-200 pb-2">
-                      📄 Historial de Recibos ({recibos.length})
+                       Historial de Recibos ({recibos.length})
                     </h3>
                     {recibos.length === 0 ? (
                       <p className="text-gray-500 text-sm">No hay recibos registrados</p>
@@ -503,7 +503,7 @@ export default function EmpleadosPage() {
                   {/* INCENTIVOS */}
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b border-gray-200 pb-2">
-                      🎯 Incentivos ({incentivos.length})
+                       Incentivos ({incentivos.length})
                     </h3>
                     {incentivos.length === 0 ? (
                       <p className="text-gray-500 text-sm">No hay incentivos registrados</p>
