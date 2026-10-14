@@ -2,7 +2,11 @@
 
 import { useState } from 'react'
 
-export default function ImportarProductividadDiaria() {
+interface ImportarProductividadDiariaProps {
+  onImportSuccess?: () => void
+}
+
+export default function ImportarProductividadDiaria({ onImportSuccess }: ImportarProductividadDiariaProps) {
   const [archivo, setArchivo] = useState<File | null>(null)
   const [cargando, setCargando] = useState(false)
   const [resultado, setResultado] = useState<any>(null)
@@ -29,7 +33,12 @@ export default function ImportarProductividadDiaria() {
       }
 
       setResultado(data)
-      setArchivo(null) // Limpiar después del éxito
+      setArchivo(null)
+      
+      // Notificar a la página principal para que recargue las estadísticas
+      if (onImportSuccess) {
+        onImportSuccess()
+      }
     } catch (error: any) {
       setResultado({ error: error.message })
     } finally {
@@ -41,7 +50,7 @@ export default function ImportarProductividadDiaria() {
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
       <h3 className="text-lg font-semibold text-gray-900 mb-4">📊 Importar Productividad Diaria</h3>
       <p className="text-sm text-gray-600 mb-4">
-        Subí el archivo Excel diario de productividad. El sistema asociará automáticamente las actividades a los empleados por nombre.
+        Subí el archivo Excel diario de productividad (ej: <code>financiero_16.xlsx</code>). El sistema asociará automáticamente las actividades a los empleados por nombre.
       </p>
 
       <div className="flex flex-col gap-4">
