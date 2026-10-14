@@ -7,7 +7,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// Normalizar texto: quitar acentos, minúsculas, espacios extra
 function normalizarTexto(texto: string): string {
   return String(texto || '')
     .normalize('NFD')
@@ -17,57 +16,76 @@ function normalizarTexto(texto: string): string {
     .replace(/\s+/g, ' ')
 }
 
-// Extraer palabras clave de un nombre (ignora palabras cortas como "de", "la", etc.)
-function extraerPalabrasClave(nombre: string): Set<string> {
+function extraerPalabras(nombre: string): string[] {
   const palabrasIgnorar = new Set(['de', 'la', 'del', 'los', 'las', 'y', 'e', 'el'])
-  return new Set(
-    normalizarTexto(nombre)
-      .split(' ')
-      .filter(p => p.length > 2 && !palabrasIgnorar.has(p))
-  )
+  return normalizarTexto(nombre)
+    .split(/[\s,]+/)
+    .filter(p => p.length > 2 && !palabrasIgnorar.has(p))
 }
 
-// Calcular similitud entre dos conjuntos de palabras
-function calcularSimilitud(palabras1: Set<string>, palabras2: Set<string>): number {
+function calcularSimilitudMejorada(nombre1: string, nombre2: string): number {
+  const palabras1 = extraerPalabras(nombre1)
+  const palabras2 = extraerPalabras(nombre2)
+  
+  if (palabras1.length === 0 || palabras2.length === 0) return 0
+  
   let coincidencias = 0
-  palabras1.forEach(p => {
-    if (palabras2.has(p)) coincidencias++
+  palabras1.forEach(p1 => {
+    if (palabras2.some(p2 => p2.includes(p1) || p1.includes(p2))) {
+      coincidencias++
+    }
   })
-  const total = Math.max(palabras1.size, palabras2.size)
-  return total > 0 ? coincidencias / total : 0
+  
+  const maxPalabras = Math.max(palabras1.length, palabras2.length)
+  return coincidencias / maxPalabras
 }
 
-// Buscar el mejor match para un nombre
 function buscarMejorMatch(
   nombreBuscado: string,
-  empleadosMap: Map<string, any>,
-  empleadosLista: any[]
-): any | null {
+  empleados: any[]
+): { empleado: any; similitud: number } | null {
   const nombreNorm = normalizarTexto(nombreBuscado)
-  
-  // 1. Intentar match exacto primero
-  if (empleadosMap.has(nombreNorm)) {
-    return empleadosMap.get(nombreNorm)
-  }
-  
-  // 2. Extraer palabras clave del nombre buscado
-  const palabrasBuscadas = extraerPalabrasClave(nombreBuscado)
   
   let mejorMatch: any = null
   let mejorSimilitud = 0
   
-  // 3. Comparar con todos los empleados
-  for (const emp of empleadosLista) {
-    const palabrasEmpleado = extraerPalabrasClave(emp.nombre_completo)
-    const similitud = calcularSimilitud(palabrasBuscadas, palabrasEmpleado)
+  for (const emp of empleados) {
+    const similitud = calcularSimilitudMejorada(nombreNorm, emp.nombre_completo)
     
-    if (similitud > mejorSimilitud && similitud >= 0.5) { // 50% de similitud mínima
+    if (similitud > mejorSimilitud && similitud >= 0.3) {
       mejorSimilitud = similitud
       mejorMatch = emp
     }
   }
   
-  return mejorMatch
+  return mejorMatch ? { empleado: mejorMatch, similitud: mejorSimilitud } : null
+}
+
+// Función inteligente para limpiar precios
+function limpiarPrecio(precioStr: string): number {
+  if (!precioStr) return 0
+  
+  // Eliminar símbolo de dólar y espacios
+  let limpio = String(precioStr).replace(/[\$\s]/g, '')
+  
+  // Detectar formato:
+  // Si tiene coma Y punto: formato anglosajón (38,278.03) - coma es miles, punto es decimal
+  // Si solo tiene coma: formato argentino (38.278,03) - punto es miles, coma es decimal
+  // Si solo tiene punto: formato anglosajón simple (38278.03) - punto es decimal
+  
+  if (limpio.includes(',') && limpio.includes('.')) {
+    // Formato anglosajón: 38,278.03
+    // Eliminar comas (separador de miles), mantener punto (decimal)
+    limpio = limpio.replace(/,/g, '')
+  } else if (limpio.includes(',') && !limpio.includes('.')) {
+    // Formato argentino: 38278,03
+    // Reemplazar coma por punto (decimal)
+    limpio = limpio.replace(',', '.')
+  }
+  // Si solo tiene punto o no tiene nada, ya está en formato correcto
+  
+  const precio = parseFloat(limpio)
+  return isNaN(precio) ? 0 : precio
 }
 
 export async function POST(request: Request) {
@@ -90,40 +108,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'La hoja de cálculo está vacía' }, { status: 400 })
     }
 
-    // Obtener todos los empleados
     const { data: empleados, error: errorEmpleados } = await supabase
       .from('empleados')
       .select('id, nombre_completo')
 
     if (errorEmpleados) throw errorEmpleados
 
-    // Crear mapa para búsqueda exacta rápida
-    const empleadosMap = new Map<string, any>()
-    empleados?.forEach(emp => {
-      const nombreNormalizado = normalizarTexto(emp.nombre_completo)
-      empleadosMap.set(nombreNormalizado, emp)
-    })
-
     const actividadesParaInsertar = []
-    const tecnicosProcesados = new Map<string, { encontrado: boolean, nombre: string }>()
+    const tecnicosProcesados = new Map<string, { encontrado: boolean; empleadoId?: string }>()
+    const detallesMatching: Array<{ tecnico: string; encontrado: boolean; similitud?: number; empleado?: string }> = []
 
-    // Procesar cada fila
     for (const row of data) {
       const tecnicoNombre = String(row['Técnico'] || row['Tecnico'] || '').trim()
       if (!tecnicoNombre || tecnicoNombre === 'Técnico') continue
 
-      // Verificar si ya procesamos este técnico
       if (tecnicosProcesados.has(tecnicoNombre)) {
         const info = tecnicosProcesados.get(tecnicoNombre)!
-        if (!info.encontrado) continue
-        // Si ya lo encontramos antes, usar el mismo empleado
-        const empleado = empleados.find(e => e.id === info.nombre)
-        if (!empleado) continue
+        if (!info.encontrado || !info.empleadoId) continue
         
-        // Procesar la fila con este empleado
-        let precioStr = String(row['Precio'] || '0')
-        precioStr = precioStr.replace(/\$/g, '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
-        const precio = parseFloat(precioStr) || 0
+        const precio = limpiarPrecio(String(row['Precio'] || '0'))
 
         let fechaActividad = null
         const fechaStr = String(row['Fecha Actividad'] || '')
@@ -141,7 +144,7 @@ export async function POST(request: Request) {
           denominacion: String(row['Denominación'] || row['Denominacion'] || ''),
           servicio_id: String(row['Servicio'] || ''),
           precio: precio,
-          empleado_id: empleado.id,
+          empleado_id: info.empleadoId,
           tecnico_nombre: tecnicoNombre,
           provincia: String(row['Provincia'] || ''),
           centro: String(row['Centro'] || ''),
@@ -150,22 +153,24 @@ export async function POST(request: Request) {
         continue
       }
 
-      // Buscar el mejor match
-      const empleado = buscarMejorMatch(tecnicoNombre, empleadosMap, empleados || [])
+      const match = buscarMejorMatch(tecnicoNombre, empleados || [])
 
-      if (!empleado) {
-        tecnicosProcesados.set(tecnicoNombre, { encontrado: false, nombre: tecnicoNombre })
+      if (!match) {
+        tecnicosProcesados.set(tecnicoNombre, { encontrado: false })
+        detallesMatching.push({ tecnico: tecnicoNombre, encontrado: false })
         continue
       }
 
-      tecnicosProcesados.set(tecnicoNombre, { encontrado: true, nombre: empleado.id })
+      tecnicosProcesados.set(tecnicoNombre, { encontrado: true, empleadoId: match.empleado.id })
+      detallesMatching.push({ 
+        tecnico: tecnicoNombre, 
+        encontrado: true, 
+        similitud: match.similitud,
+        empleado: match.empleado.nombre_completo 
+      })
 
-      // Limpiar precio
-      let precioStr = String(row['Precio'] || '0')
-      precioStr = precioStr.replace(/\$/g, '').replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
-      const precio = parseFloat(precioStr) || 0
+      const precio = limpiarPrecio(String(row['Precio'] || '0'))
 
-      // Formatear fecha
       let fechaActividad = null
       const fechaStr = String(row['Fecha Actividad'] || '')
       if (fechaStr.includes('.')) {
@@ -182,7 +187,7 @@ export async function POST(request: Request) {
         denominacion: String(row['Denominación'] || row['Denominacion'] || ''),
         servicio_id: String(row['Servicio'] || ''),
         precio: precio,
-        empleado_id: empleado.id,
+        empleado_id: match.empleado.id,
         tecnico_nombre: tecnicoNombre,
         provincia: String(row['Provincia'] || ''),
         centro: String(row['Centro'] || ''),
@@ -190,7 +195,6 @@ export async function POST(request: Request) {
       })
     }
 
-    // Insertar en lotes
     let insertados = 0
     if (actividadesParaInsertar.length > 0) {
       const { error: errorInsert } = await supabase
@@ -201,9 +205,8 @@ export async function POST(request: Request) {
       insertados = actividadesParaInsertar.length
     }
 
-    const noEncontrados = Array.from(tecnicosProcesados.entries())
-      .filter(([_, info]) => !info.encontrado)
-      .map(([nombre, _]) => nombre)
+    const noEncontrados = detallesMatching.filter(d => !d.encontrado).map(d => d.tecnico)
+    const encontrados = detallesMatching.filter(d => d.encontrado)
 
     return NextResponse.json({
       success: true,
@@ -211,7 +214,8 @@ export async function POST(request: Request) {
       insertadas: insertados,
       noEncontrados: noEncontrados,
       tecnicosUnicos: tecnicosProcesados.size,
-      tecnicosEncontrados: tecnicosProcesados.size - noEncontrados.length
+      tecnicosEncontrados: tecnicosProcesados.size - noEncontrados.length,
+      detallesMatching: encontrados
     })
 
   } catch (error: any) {
