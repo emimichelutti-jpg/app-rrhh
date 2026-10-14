@@ -9,91 +9,145 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+interface Actividad {
+  id: string
+  actividad_id: string
+  orden_id: string
+  tipo_tramite: string
+  denominacion: string
+  precio: number
+  empleado_id: string
+  tecnico_nombre: string
+  provincia: string
+  centro: string
+  fecha_actividad: string
+  created_at: string
+}
+
 interface TecnicoStats {
   id: string
   nombre: string
+  provincia: string
   servicios: number
   ingresos: number
 }
 
+interface FechaStats {
+  fecha: string
+  actividades: number
+  ingresos: number
+  tecnicos: number
+}
+
 export default function ProductividadPage() {
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState({
-    totalActividades: 0,
-    totalIngresos: 0,
-    tecnicosActivos: 0
-  })
-  const [ranking, setRanking] = useState<TecnicoStats[]>([])
+  const [actividades, setActividades] = useState<Actividad[]>([])
+  const [empleados, setEmpleados] = useState<Map<string, string>>(new Map())
+  
+  // Filtros
+  const [fechaDesde, setFechaDesde] = useState('')
+  const [fechaHasta, setFechaHasta] = useState('')
+  const [filtroProvincia, setFiltroProvincia] = useState('todas')
+  const [filtroCentro, setFiltroCentro] = useState('todos')
+  const [filtroTecnico, setFiltroTecnico] = useState('todos')
+  
+  // Opciones de filtros
+  const [provincias, setProvincias] = useState<string[]>([])
+  const [centros, setCentros] = useState<string[]>([])
+  const [tecnicos, setTecnicos] = useState<string[]>([])
 
   useEffect(() => {
-    cargarDatos()
+    cargarDatosIniciales()
   }, [])
 
-  const cargarDatos = async () => {
+  const cargarDatosIniciales = async () => {
     setLoading(true)
     try {
-      const hoy = new Date()
-      const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0]
-      
-      // 1. Obtener todas las actividades del mes
-      const { data: actividades, error } = await supabase
+      // Cargar todas las actividades
+      const { data: actividadesData, error } = await supabase
         .from('actividades_diarias')
-        .select('empleado_id, precio, fecha_actividad')
-        .gte('fecha_actividad', primerDiaMes)
+        .select('*')
+        .order('fecha_actividad', { ascending: false })
 
       if (error) throw error
 
-      // 2. Calcular totales para las tarjetas
-      const totalIngresos = actividades.reduce((sum: number, item: any) => sum + (item.precio || 0), 0)
-      const tecnicosUnicos = new Set(actividades.map((item: any) => item.empleado_id)).size
-      
-      setStats({
-        totalActividades: actividades.length,
-        totalIngresos,
-        tecnicosActivos: tecnicosUnicos
+      setActividades(actividadesData || [])
+
+      // Cargar empleados para mapear nombres
+      const { data: empleadosData } = await supabase
+        .from('empleados')
+        .select('id, nombre_completo')
+
+      const empleadosMap = new Map<string, string>()
+      empleadosData?.forEach(emp => {
+        empleadosMap.set(emp.id, emp.nombre_completo)
       })
+      setEmpleados(empleadosMap)
 
-      // 3. Agrupar datos por técnico para la tabla
-      const grouped: Record<string, { servicios: number; ingresos: number }> = {}
-      actividades.forEach((act: any) => {
-        if (!grouped[act.empleado_id]) {
-          grouped[act.empleado_id] = { servicios: 0, ingresos: 0 }
-        }
-        grouped[act.empleado_id].servicios += 1
-        grouped[act.empleado_id].ingresos += act.precio
-      })
+      // Extraer valores únicos para filtros
+      if (actividadesData && actividadesData.length > 0) {
+        const provinciasUnicas = [...new Set(actividadesData.map(a => a.provincia).filter(p => p))]
+        const centrosUnicos = [...new Set(actividadesData.map(a => a.centro).filter(c => c))]
+        const tecnicosUnicos = [...new Set(actividadesData.map(a => a.tecnico_nombre).filter(t => t))]
 
-      // 4. Obtener nombres de los empleados
-      const empleadoIds = Object.keys(grouped)
-      if (empleadoIds.length > 0) {
-        const { data: empleados } = await supabase
-          .from('empleados')
-          .select('id, nombre_completo')
-          .in('id', empleadoIds)
+        setProvincias(provinciasUnicas.sort())
+        setCentros(centrosUnicos.sort())
+        setTecnicos(tecnicosUnicos.sort())
 
-        const empleadosMap = new Map(empleados?.map(e => [e.id, e.nombre_completo]) || [])
-
-        // 5. Armar el ranking ordenado por ingresos
-        const tablaDatos: TecnicoStats[] = Object.entries(grouped)
-          .map(([id, data]) => ({
-            id,
-            nombre: empleadosMap.get(id) || 'Técnico no identificado',
-            servicios: data.servicios,
-            ingresos: data.ingresos
-          }))
-          .sort((a, b) => b.ingresos - a.ingresos) // Ordenar de mayor a menor ingreso
-
-        setRanking(tablaDatos)
-      } else {
-        setRanking([])
+        // Establecer fechas por defecto (último mes)
+        const hoy = new Date()
+        const haceUnMes = new Date(hoy.getFullYear(), hoy.getMonth() - 1, hoy.getDate())
+        setFechaDesde(haceUnMes.toISOString().split('T')[0])
+        setFechaHasta(hoy.toISOString().split('T')[0])
       }
-
     } catch (error) {
       console.error('Error cargando datos:', error)
     } finally {
       setLoading(false)
     }
   }
+
+  // Aplicar filtros
+  const actividadesFiltradas = actividades.filter(act => {
+    if (fechaDesde && act.fecha_actividad < fechaDesde) return false
+    if (fechaHasta && act.fecha_actividad > fechaHasta) return false
+    if (filtroProvincia !== 'todas' && act.provincia !== filtroProvincia) return false
+    if (filtroCentro !== 'todos' && act.centro !== filtroCentro) return false
+    if (filtroTecnico !== 'todos' && act.tecnico_nombre !== filtroTecnico) return false
+    return true
+  })
+
+  // Calcular estadísticas
+  const totalActividades = actividadesFiltradas.length
+  const totalIngresos = actividadesFiltradas.reduce((sum, act) => sum + (act.precio || 0), 0)
+  const tecnicosUnicos = new Set(actividadesFiltradas.map(a => a.empleado_id)).size
+
+  // Agrupar por técnico
+  const ranking: TecnicoStats[] = Object.entries(
+    actividadesFiltradas.reduce((acc: any, act) => {
+      if (!acc[act.empleado_id]) {
+        acc[act.empleado_id] = { id: act.empleado_id, nombre: empleados.get(act.empleado_id) || act.tecnico_nombre, provincia: act.provincia, servicios: 0, ingresos: 0 }
+      }
+      acc[act.empleado_id].servicios += 1
+      acc[act.empleado_id].ingresos += act.precio
+      return acc
+    }, {})
+  ).map(([_, data]) => data as TecnicoStats)
+    .sort((a, b) => b.ingresos - a.ingresos)
+
+  // Agrupar por fecha
+  const porFecha: FechaStats[] = Object.entries(
+    actividadesFiltradas.reduce((acc: any, act) => {
+      if (!acc[act.fecha_actividad]) {
+        acc[act.fecha_actividad] = { fecha: act.fecha_actividad, actividades: 0, ingresos: 0, tecnicos: new Set() }
+      }
+      acc[act.fecha_actividad].actividades += 1
+      acc[act.fecha_actividad].ingresos += act.precio
+      acc[act.fecha_actividad].tecnicos.add(act.empleado_id)
+      return acc
+    }, {})
+  ).map(([_, data]) => ({ ...data, tecnicos: data.tecnicos.size }))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))
 
   const formatMoney = (amount: number) => {
     return new Intl.NumberFormat('es-AR', {
@@ -102,6 +156,20 @@ export default function ProductividadPage() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     }).format(amount)
+  }
+
+  const formatDate = (date: string) => {
+    if (!date) return '-'
+    const [year, month, day] = date.split('-')
+    return `${day}/${month}/${year}`
+  }
+
+  const handleLimpiarFiltros = () => {
+    setFechaDesde('')
+    setFechaHasta('')
+    setFiltroProvincia('todas')
+    setFiltroCentro('todos')
+    setFiltroTecnico('todos')
   }
 
   if (loading) {
@@ -123,59 +191,186 @@ export default function ProductividadPage() {
           </p>
         </div>
 
-        {/* Estadísticas Rápidas del Mes */}
+        {/* Filtros */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-gray-900"> Filtros de Análisis</h2>
+            <button
+              onClick={handleLimpiarFiltros}
+              className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Limpiar filtros
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Desde</label>
+              <input
+                type="date"
+                value={fechaDesde}
+                onChange={(e) => setFechaDesde(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Hasta</label>
+              <input
+                type="date"
+                value={fechaHasta}
+                onChange={(e) => setFechaHasta(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Provincia</label>
+              <select
+                value={filtroProvincia}
+                onChange={(e) => setFiltroProvincia(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="todas">Todas</option>
+                {provincias.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Centro</label>
+              <select
+                value={filtroCentro}
+                onChange={(e) => setFiltroCentro(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="todos">Todos</option>
+                {centros.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Técnico</label>
+              <select
+                value={filtroTecnico}
+                onChange={(e) => setFiltroTecnico(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="todos">Todos</option>
+                {tecnicos.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {(fechaDesde || fechaHasta || filtroProvincia !== 'todas' || filtroCentro !== 'todos' || filtroTecnico !== 'todos') && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-sm text-blue-800">
+                <strong>Filtros activos:</strong>{' '}
+                {fechaDesde && `Desde ${formatDate(fechaDesde)}`}
+                {fechaHasta && ` hasta ${formatDate(fechaHasta)}`}
+                {filtroProvincia !== 'todas' && ` • Provincia: ${filtroProvincia}`}
+                {filtroCentro !== 'todos' && ` • Centro: ${filtroCentro}`}
+                {filtroTecnico !== 'todos' && ` • Técnico: ${filtroTecnico}`}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Estadísticas */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <p className="text-sm font-semibold text-gray-500 uppercase">Actividades este mes</p>
-            <p className="text-3xl font-bold text-blue-600 mt-2">{stats.totalActividades}</p>
+            <p className="text-sm font-semibold text-gray-500 uppercase">Actividades</p>
+            <p className="text-3xl font-bold text-blue-600 mt-2">{totalActividades}</p>
+            <p className="text-xs text-gray-500 mt-1">en el período seleccionado</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <p className="text-sm font-semibold text-gray-500 uppercase">Ingresos Generados</p>
-            <p className="text-3xl font-bold text-green-600 mt-2">{formatMoney(stats.totalIngresos)}</p>
+            <p className="text-3xl font-bold text-green-600 mt-2">{formatMoney(totalIngresos)}</p>
+            <p className="text-xs text-gray-500 mt-1">total facturado</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <p className="text-sm font-semibold text-gray-500 uppercase">Técnicos con Actividad</p>
-            <p className="text-3xl font-bold text-purple-600 mt-2">{stats.tecnicosActivos}</p>
+            <p className="text-sm font-semibold text-gray-500 uppercase">Técnicos Activos</p>
+            <p className="text-3xl font-bold text-purple-600 mt-2">{tecnicosUnicos}</p>
+            <p className="text-xs text-gray-500 mt-1">con actividad registrada</p>
           </div>
         </div>
 
-        {/* Módulo de Importación */}
-        <ImportarProductividadDiaria onImportSuccess={cargarDatos} />
-
-        {/* Tabla de Ranking de Productividad */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">🏆 Ranking de Productividad (Mes Actual)</h2>
-              <p className="text-sm text-gray-500 mt-1">Ordenado por ingresos generados</p>
+        {/* Evolución Diaria */}
+        {porFecha.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">📅 Evolución Diaria</h2>
+              <p className="text-sm text-gray-500 mt-1">Actividades e ingresos por día</p>
             </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actividades</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Técnicos</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ingresos</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Promedio por Técnico</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {porFecha.map((dia) => (
+                    <tr key={dia.fecha} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {formatDate(dia.fecha)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                          {dia.actividades}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                        {dia.tecnicos}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-mono font-medium text-green-700">
+                        {formatMoney(dia.ingresos)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-mono text-gray-600">
+                        {formatMoney(dia.ingresos / dia.tecnicos)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Ranking de Técnicos */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="p-6 border-b border-gray-200">
+            <h2 className="text-xl font-semibold text-gray-900">🏆 Ranking de Productividad</h2>
+            <p className="text-sm text-gray-500 mt-1">Ordenado por ingresos generados en el período</p>
           </div>
 
           {ranking.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              <p className="text-lg">No hay datos de productividad para este mes.</p>
-              <p className="text-sm mt-2">Importá un archivo Excel diario para comenzar.</p>
+              <p className="text-lg">No hay datos para los filtros seleccionados.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Técnico</th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Servicios</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ingresos Generados</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Promedio por Servicio</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Técnico</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Provincia</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Servicios</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ingresos</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Promedio/Servicio</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {ranking.map((tecnico, index) => (
-                    <tr key={tecnico.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={tecnico.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {tecnico.nombre}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {tecnico.provincia}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
                         <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
@@ -195,6 +390,9 @@ export default function ProductividadPage() {
             </div>
           )}
         </div>
+
+        {/* Importar */}
+        <ImportarProductividadDiaria onImportSuccess={cargarDatosIniciales} />
       </div>
     </div>
   )
