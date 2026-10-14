@@ -61,7 +61,7 @@ function buscarMejorMatch(
   return mejorMatch ? { empleado: mejorMatch, similitud: mejorSimilitud } : null
 }
 
-// ✅ FUNCIÓN CORREGIDA: Limpia precios en cualquier formato
+// ✅ FUNCIÓN MEJORADA: Limpia precios en CUALQUIER formato
 function limpiarPrecio(precioInput: any): number {
   if (precioInput === null || precioInput === undefined) return 0
   
@@ -72,7 +72,7 @@ function limpiarPrecio(precioInput: any): number {
   
   let precioStr = String(precioInput).trim()
   
-  // Eliminar símbolo de dólar y espacios
+  // Eliminar símbolo de dólar y TODOS los espacios
   precioStr = precioStr.replace(/[\$\s]/g, '')
   
   if (precioStr === '') return 0
@@ -95,6 +95,27 @@ function limpiarPrecio(precioInput: any): number {
   return isNaN(precio) ? 0 : precio
 }
 
+// ✅ FUNCIÓN NUEVA: Busca el valor de una columna de forma FLEXIBLE
+function obtenerValor(row: any, nombresPosibles: string[]): any {
+  for (const nombre of nombresPosibles) {
+    // Buscar coincidencia exacta
+    if (row[nombre] !== undefined && row[nombre] !== null && row[nombre] !== '') {
+      return row[nombre]
+    }
+    
+    // Buscar coincidencia parcial (ignorando mayúsculas/minúsculas)
+    const nombreNorm = normalizarTexto(nombre)
+    for (const key of Object.keys(row)) {
+      if (normalizarTexto(key).includes(nombreNorm) || nombreNorm.includes(normalizarTexto(key))) {
+        if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+          return row[key]
+        }
+      }
+    }
+  }
+  return null
+}
+
 export async function POST(request: Request) {
   try {
     const formData = await request.formData()
@@ -107,6 +128,7 @@ export async function POST(request: Request) {
     const buffer = await file.arrayBuffer()
     const workbook = XLSX.read(buffer, { type: 'array' })
     
+    // Buscar la hoja "Detalle" o la primera hoja disponible
     const sheetName = workbook.SheetNames.find(name => name.toLowerCase().includes('detalle')) || workbook.SheetNames[0]
     const worksheet = workbook.Sheets[sheetName]
     const data: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
@@ -115,6 +137,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'La hoja de cálculo está vacía' }, { status: 400 })
     }
 
+    // Obtener todos los empleados
     const { data: empleados, error: errorEmpleados } = await supabase
       .from('empleados')
       .select('id, nombre_completo')
@@ -127,36 +150,46 @@ export async function POST(request: Request) {
     let preciosDebug: number[] = []
 
     for (const row of data) {
-      const tecnicoNombre = String(row['Técnico'] || row['Tecnico'] || '').trim()
-      if (!tecnicoNombre || tecnicoNombre === 'Técnico') continue
+      // ✅ BÚSQUEDA FLEXIBLE DE NOMBRE DE TÉCNICO (maneja ambos formatos)
+      const tecnicoNombre = String(
+        obtenerValor(row, ['Técnico', 'Tecnico', 'tecnico', 'TÉCNICO']) || ''
+      ).trim()
+      
+      if (!tecnicoNombre || tecnicoNombre === 'Técnico' || tecnicoNombre === 'Tecnico') continue
+
+      // ✅ BÚSQUEDA FLEXIBLE DE PRECIO (maneja ambos formatos)
+      const precioRaw = obtenerValor(row, ['Precio', 'precio', 'Precio ', ' precio', 'PRECIO'])
+      const precio = limpiarPrecio(precioRaw)
+      preciosDebug.push(precio)
+
+      // ✅ BÚSQUEDA FLEXIBLE DE FECHA
+      const fechaRaw = String(
+        obtenerValor(row, ['Fecha Actividad', 'FechaActividad', 'fecha_actividad', 'Fecha', 'FECHA ACTIVIDAD']) || ''
+      ).trim()
 
       if (tecnicosProcesados.has(tecnicoNombre)) {
         const info = tecnicosProcesados.get(tecnicoNombre)!
         if (!info.encontrado || !info.empleadoId) continue
         
-        const precio = limpiarPrecio(row['Precio'])
-        preciosDebug.push(precio)
-
         let fechaActividad = null
-        const fechaStr = String(row['Fecha Actividad'] || '')
-        if (fechaStr.includes('.')) {
-          const [dia, mes, anio] = fechaStr.split('.')
+        if (fechaRaw.includes('.')) {
+          const [dia, mes, anio] = fechaRaw.split('.')
           if (dia && mes && anio) {
             fechaActividad = `${anio}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
           }
         }
 
         actividadesParaInsertar.push({
-          actividad_id: String(row['Actividad'] || ''),
-          orden_id: String(row['Orden'] || ''),
-          tipo_tramite: String(row['Tipo Trámite'] || row['Tipo Tramite'] || ''),
-          denominacion: String(row['Denominación'] || row['Denominacion'] || ''),
-          servicio_id: String(row['Servicio'] || ''),
+          actividad_id: String(obtenerValor(row, ['Actividad', 'actividad', 'ACTIVIDAD']) || ''),
+          orden_id: String(obtenerValor(row, ['Orden', 'Orden Trab.  STL/TOA', 'orden', 'ORDEN']) || ''),
+          tipo_tramite: String(obtenerValor(row, ['Tipo Trámite', 'Tipo Tramite', 'tipo_tramite', 'TIPO TRÁMITE']) || ''),
+          denominacion: String(obtenerValor(row, ['Denominación', 'Denominacion', 'Descrip. Trámite', 'Descrip. Tramite', 'DESCRIPCIÓN SERVICIO']) || ''),
+          servicio_id: String(obtenerValor(row, ['Servicio', 'servicio', 'SERVICIO']) || ''),
           precio: precio,
           empleado_id: info.empleadoId,
           tecnico_nombre: tecnicoNombre,
-          provincia: String(row['Provincia'] || ''),
-          centro: String(row['Centro'] || ''),
+          provincia: String(obtenerValor(row, ['Provincia', 'provincia', 'Tipo de Agrupador', 'PROVINCIA']) || ''),
+          centro: String(obtenerValor(row, ['Centro', 'centro', 'Orden de Compra', 'CENTRO']) || ''),
           fecha_actividad: fechaActividad
         })
         continue
@@ -178,37 +211,33 @@ export async function POST(request: Request) {
         empleado: match.empleado.nombre_completo 
       })
 
-      const precio = limpiarPrecio(row['Precio'])
-      preciosDebug.push(precio)
-
       let fechaActividad = null
-      const fechaStr = String(row['Fecha Actividad'] || '')
-      if (fechaStr.includes('.')) {
-        const [dia, mes, anio] = fechaStr.split('.')
+      if (fechaRaw.includes('.')) {
+        const [dia, mes, anio] = fechaRaw.split('.')
         if (dia && mes && anio) {
           fechaActividad = `${anio}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`
         }
       }
 
       actividadesParaInsertar.push({
-        actividad_id: String(row['Actividad'] || ''),
-        orden_id: String(row['Orden'] || ''),
-        tipo_tramite: String(row['Tipo Trámite'] || row['Tipo Tramite'] || ''),
-        denominacion: String(row['Denominación'] || row['Denominacion'] || ''),
-        servicio_id: String(row['Servicio'] || ''),
+        actividad_id: String(obtenerValor(row, ['Actividad', 'actividad', 'ACTIVIDAD']) || ''),
+        orden_id: String(obtenerValor(row, ['Orden', 'Orden Trab.  STL/TOA', 'orden', 'ORDEN']) || ''),
+        tipo_tramite: String(obtenerValor(row, ['Tipo Trámite', 'Tipo Tramite', 'tipo_tramite', 'TIPO TRÁMITE']) || ''),
+        denominacion: String(obtenerValor(row, ['Denominación', 'Denominacion', 'Descrip. Trámite', 'Descrip. Tramite', 'DESCRIPCIÓN SERVICIO']) || ''),
+        servicio_id: String(obtenerValor(row, ['Servicio', 'servicio', 'SERVICIO']) || ''),
         precio: precio,
         empleado_id: match.empleado.id,
         tecnico_nombre: tecnicoNombre,
-        provincia: String(row['Provincia'] || ''),
-        centro: String(row['Centro'] || ''),
+        provincia: String(obtenerValor(row, ['Provincia', 'provincia', 'Tipo de Agrupador', 'PROVINCIA']) || ''),
+        centro: String(obtenerValor(row, ['Centro', 'centro', 'Orden de Compra', 'CENTRO']) || ''),
         fecha_actividad: fechaActividad
       })
     }
 
-    // Log de debug para verificar precios
+    // Log de debug
     console.log('🔍 DEBUG PRECIOS - Primeros 10:', preciosDebug.slice(0, 10))
-    console.log(' DEBUG PRECIOS - Total insertados:', actividadesParaInsertar.length)
-    console.log(' DEBUG PRECIOS - Suma total:', preciosDebug.reduce((a, b) => a + b, 0))
+    console.log('📊 DEBUG PRECIOS - Total insertados:', actividadesParaInsertar.length)
+    console.log('💰 DEBUG PRECIOS - Suma total:', preciosDebug.reduce((a, b) => a + b, 0))
 
     let insertados = 0
     if (actividadesParaInsertar.length > 0) {
@@ -241,7 +270,7 @@ export async function POST(request: Request) {
     })
 
   } catch (error: any) {
-    console.error(' Error importando productividad:', error)
+    console.error('❌ Error importando productividad:', error)
     return NextResponse.json({ 
       error: error.message || 'Error desconocido al procesar el archivo' 
     }, { status: 500 })
