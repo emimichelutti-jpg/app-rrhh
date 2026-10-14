@@ -1,5 +1,7 @@
 'use client'
 
+import ImportarProductividadDiaria from '@/components/ImportarProductividadDiaria'
+
 import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
@@ -412,3 +414,4 @@ export default function AdminProductividadPage() {
     </div>
   )
 }
+<ImportarProductividadDiaria />

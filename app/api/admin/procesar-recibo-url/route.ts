@@ -7,13 +7,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// ✅ Función para sanitizar nombres de archivo (evita errores de Unicode en Python)
 function sanitizeFilename(filename: string): string {
   return filename
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // Quita tildes
-    .replace(/ñ/gi, "n")             //  → N
-    .replace(/[^a-zA-Z0-9._-]/g, "_") // Otros caracteres especiales → _
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ñ/gi, "n")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
 }
 
 function normalizarCUIL(cuil: string): string {
@@ -22,10 +21,8 @@ function normalizarCUIL(cuil: string): string {
 
 function determinarQuincena(quincenaExtraida: string | null | undefined, tipoRecibo: string): string {
   if (tipoRecibo === 'Mensual') return 'Mensual'
-  
   const tiposIndependientes = ['sac_1ra', 'sac_2da', 'vacaciones', 'bono']
   if (tiposIndependientes.includes(tipoRecibo)) return 'N/A'
-  
   if (quincenaExtraida && ['1ra', '2da', 'Mensual'].includes(quincenaExtraida)) {
     return quincenaExtraida
   }
@@ -39,7 +36,6 @@ function determinarPeriodo(
   periodoForzado?: string
 ): string {
   if (periodoForzado) return periodoForzado
-  
   if (tipoRecibo === 'sac_1ra') return `${añoActual}-06`
   if (tipoRecibo === 'sac_2da') return `${añoActual}-12`
   return periodoExtraido || new Date().toISOString().slice(0, 7)
@@ -71,11 +67,7 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { archivos, tipo_recibo = 'normal', periodo_forzado } = body
 
-    console.log(' [ROUTE] Request recibido:', { 
-      cantidadArchivos: archivos?.length, 
-      tipo_recibo, 
-      periodo_forzado 
-    })
+    console.log(' [ROUTE] Request recibido:', { cantidadArchivos: archivos?.length, tipo_recibo, periodo_forzado })
 
     if (!archivos || archivos.length === 0) {
       return NextResponse.json({ error: 'No hay archivos' }, { status: 400 })
@@ -87,7 +79,6 @@ export async function POST(request: Request) {
         const pdfUrl = typeof item === 'string' ? item : item.pdfUrl
         const fileName = typeof item === 'string' ? item.split('/').pop() : item.fileName
         
-        console.log(`   📄 Descargando: ${fileName}`)
         const response = await fetch(pdfUrl)
         if (!response.ok) throw new Error(`No se pudo descargar: ${pdfUrl}`)
         const buffer = await response.arrayBuffer()
@@ -95,9 +86,6 @@ export async function POST(request: Request) {
       })
     )
 
-    console.log(`✅ [ROUTE] ${pdfsSubidos.length} PDFs descargados`)
-
-    // ✅ CORREGIDO: Sanitizar el nombre del archivo antes de enviarlo a Python
     const formData = new FormData()
     pdfsSubidos.forEach(({ fileName, buffer }) => {
       const safeFileName = sanitizeFilename(fileName)
@@ -114,17 +102,36 @@ export async function POST(request: Request) {
         body: formData,
       })
     } catch (fetchError: any) {
-      console.error('❌ [ROUTE] Error conectando con backend Python:', fetchError.message)
-      throw new Error(`No se pudo conectar con el backend Python (${backendUrl}). Verificá que esté corriendo.`)
+      console.error('❌ [ROUTE] Error de RED conectando con backend:', fetchError.message)
+      throw new Error(`No se pudo conectar con el backend Python (${backendUrl}). Verificá que la URL en Vercel sea correcta y que Railway esté Online.`)
     }
 
     if (!backendResponse.ok) {
       const errorText = await backendResponse.text()
-      console.error('❌ [ROUTE] Backend respondió con error:', backendResponse.status, errorText)
-      throw new Error(`Backend Python respondió ${backendResponse.status}: ${errorText}`)
+      console.error('❌ [ROUTE] Backend respondió con error:', backendResponse.status, errorText.substring(0, 200))
+      
+      let errorMsg = `Backend Python respondió ${backendResponse.status}`
+      if (errorText.includes('<!DOCTYPE') || errorText.includes('<html>')) {
+        errorMsg += ' (El backend devolvió una página HTML de error. Revisá los logs de Railway).'
+      } else {
+        try {
+          const errorJson = JSON.parse(errorText)
+          errorMsg += `: ${errorJson.detail || errorText}`
+        } catch {
+          errorMsg += `: ${errorText}`
+        }
+      }
+      throw new Error(errorMsg)
     }
 
-    const recibosExtraidos: any[] = await backendResponse.json()
+    let recibosExtraidos: any[]
+    try {
+      recibosExtraidos = await backendResponse.json()
+    } catch (jsonError) {
+      console.error('❌ [ROUTE] Error parseando JSON del backend:', jsonError)
+      throw new Error('El backend no devolvió un JSON válido. Revisá los logs de Railway.')
+    }
+
     console.log(`✅ [ROUTE] Backend extrajo ${recibosExtraidos.length} recibos`)
 
     if (recibosExtraidos.length === 0) {
@@ -132,8 +139,6 @@ export async function POST(request: Request) {
     }
 
     const cuilsUnicos = [...new Set(recibosExtraidos.map((r) => normalizarCUIL(r.cuil)))]
-    console.log(`👥 [ROUTE] Buscando ${cuilsUnicos.length} empleados únicos...`)
-    
     const { data: empleadosExistentes } = await supabase
       .from('empleados')
       .select('id, cuil, nombre_completo')
@@ -143,16 +148,9 @@ export async function POST(request: Request) {
 
     const cuilsFaltantes = cuilsUnicos.filter((cuil) => !empleadosMap.has(cuil))
     if (cuilsFaltantes.length > 0) {
-      console.log(`➕ [ROUTE] Creando ${cuilsFaltantes.length} empleados nuevos...`)
       const nuevos = cuilsFaltantes.map((cuil) => {
         const recibo = recibosExtraidos.find((r) => normalizarCUIL(r.cuil) === cuil)
-        return { 
-          cuil, 
-          nombre_completo: recibo?.nombre_completo || 'Desconocido', 
-          email: `emp_${cuil}@movilsat.com.ar`, 
-          activo: true, 
-          rol: 'empleado' 
-        }
+        return { cuil, nombre_completo: recibo?.nombre_completo || 'Desconocido', email: `emp_${cuil}@movilsat.com.ar`, activo: true, rol: 'empleado' }
       })
       const { data: creados } = await supabase.from('empleados').insert(nuevos).select('id, cuil, nombre_completo')
       creados?.forEach((emp) => empleadosMap.set(normalizarCUIL(emp.cuil), emp))
@@ -164,10 +162,7 @@ export async function POST(request: Request) {
     for (const recibo of recibosExtraidos) {
       const cuil = normalizarCUIL(recibo.cuil)
       const empleado = empleadosMap.get(cuil)
-      if (!empleado) {
-        console.warn(`⚠️ [ROUTE] Empleado no encontrado para CUIL: ${cuil}`)
-        continue
-      }
+      if (!empleado) continue
 
       const nombreArchivo = String(recibo.archivo_origen || "").toLowerCase()
       const archivoCorrecto = pdfsSubidos.find((a) => {
@@ -223,17 +218,6 @@ export async function POST(request: Request) {
     const erroresDetalle: string[] = []
 
     for (const recibo of recibosUnicos.values()) {
-      const { data: reciboExistente } = await supabase
-        .from('recibos_sueldo')
-        .select('id, estado_firma')
-        .eq('empleado_id', recibo.empleado_id)
-        .eq('periodo', recibo.periodo)
-        .eq('quincena', recibo.quincena)
-        .eq('tipo_recibo', recibo.tipo_recibo)
-        .maybeSingle()
-
-      const esReciboNuevo = !reciboExistente
-
       const { error } = await supabase.from('recibos_sueldo').upsert(recibo, {
         onConflict: 'empleado_id,periodo,quincena,tipo_recibo',
       })
@@ -243,28 +227,24 @@ export async function POST(request: Request) {
         erroresDetalle.push(`CUIL ${recibo.cuil}: ${error.message}`) 
       } else { 
         exitosos++
-        if (esReciboNuevo) {
+        const { data: reciboExistente } = await supabase.from('recibos_sueldo').select('id').eq('empleado_id', recibo.empleado_id).eq('periodo', recibo.periodo).eq('quincena', recibo.quincena).eq('tipo_recibo', recibo.tipo_recibo).maybeSingle()
+        
+        if (!reciboExistente) {
           const nombreMes = getNombreMes(recibo.periodo)
           const quincenaTexto = recibo.quincena === 'N/A' || recibo.quincena === 'Mensual' ? '' : ` (${recibo.quincena} quincena)`
           
-          // ✅ CORREGIDO: Manejo correcto de errores de Supabase (sin .catch())
           const { error: notifError } = await supabase.from('notificaciones').insert({
             empleado_id: recibo.empleado_id,
             tipo: 'nuevo_recibo',
-            titulo: ` Nuevo recibo disponible`,
+            titulo: `📄 Nuevo recibo disponible`,
             mensaje: `Ya podés ver y firmar tu recibo de ${nombreMes}${quincenaTexto}.`,
             link: '/empleado/recibos',
             leido: false
           })
-          
-          if (notifError) {
-            console.error(`⚠️ Error creando notificación para ${recibo.cuil}:`, notifError.message)
-          }
+          if (notifError) console.error(`⚠️ Error creando notificación:`, notifError.message)
         }
       }
     }
-
-    console.log(`✅ [ROUTE] Completado! Exitosos: ${exitosos}, Fallidos: ${fallidos}`)
 
     return NextResponse.json({
       success: true, exitosos, fallidos,
