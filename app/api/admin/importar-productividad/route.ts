@@ -61,30 +61,37 @@ function buscarMejorMatch(
   return mejorMatch ? { empleado: mejorMatch, similitud: mejorSimilitud } : null
 }
 
-// Función inteligente para limpiar precios
-function limpiarPrecio(precioStr: string): number {
-  if (!precioStr) return 0
+// ✅ FUNCIÓN CORREGIDA: Limpia precios en cualquier formato
+function limpiarPrecio(precioInput: any): number {
+  if (precioInput === null || precioInput === undefined) return 0
+  
+  // Si ya es un número, usarlo directamente
+  if (typeof precioInput === 'number') {
+    return isNaN(precioInput) ? 0 : precioInput
+  }
+  
+  let precioStr = String(precioInput).trim()
   
   // Eliminar símbolo de dólar y espacios
-  let limpio = String(precioStr).replace(/[\$\s]/g, '')
+  precioStr = precioStr.replace(/[\$\s]/g, '')
+  
+  if (precioStr === '') return 0
   
   // Detectar formato:
   // Si tiene coma Y punto: formato anglosajón (38,278.03) - coma es miles, punto es decimal
-  // Si solo tiene coma: formato argentino (38.278,03) - punto es miles, coma es decimal
+  // Si solo tiene coma: formato argentino (38278,03) - coma es decimal
   // Si solo tiene punto: formato anglosajón simple (38278.03) - punto es decimal
   
-  if (limpio.includes(',') && limpio.includes('.')) {
-    // Formato anglosajón: 38,278.03
-    // Eliminar comas (separador de miles), mantener punto (decimal)
-    limpio = limpio.replace(/,/g, '')
-  } else if (limpio.includes(',') && !limpio.includes('.')) {
-    // Formato argentino: 38278,03
-    // Reemplazar coma por punto (decimal)
-    limpio = limpio.replace(',', '.')
+  if (precioStr.includes(',') && precioStr.includes('.')) {
+    // Formato anglosajón: 38,278.03 → eliminar comas (separador de miles)
+    precioStr = precioStr.replace(/,/g, '')
+  } else if (precioStr.includes(',') && !precioStr.includes('.')) {
+    // Formato argentino: 38278,03 → reemplazar coma por punto (decimal)
+    precioStr = precioStr.replace(',', '.')
   }
   // Si solo tiene punto o no tiene nada, ya está en formato correcto
   
-  const precio = parseFloat(limpio)
+  const precio = parseFloat(precioStr)
   return isNaN(precio) ? 0 : precio
 }
 
@@ -117,6 +124,7 @@ export async function POST(request: Request) {
     const actividadesParaInsertar = []
     const tecnicosProcesados = new Map<string, { encontrado: boolean; empleadoId?: string }>()
     const detallesMatching: Array<{ tecnico: string; encontrado: boolean; similitud?: number; empleado?: string }> = []
+    let preciosDebug: number[] = []
 
     for (const row of data) {
       const tecnicoNombre = String(row['Técnico'] || row['Tecnico'] || '').trim()
@@ -126,7 +134,8 @@ export async function POST(request: Request) {
         const info = tecnicosProcesados.get(tecnicoNombre)!
         if (!info.encontrado || !info.empleadoId) continue
         
-        const precio = limpiarPrecio(String(row['Precio'] || '0'))
+        const precio = limpiarPrecio(row['Precio'])
+        preciosDebug.push(precio)
 
         let fechaActividad = null
         const fechaStr = String(row['Fecha Actividad'] || '')
@@ -169,7 +178,8 @@ export async function POST(request: Request) {
         empleado: match.empleado.nombre_completo 
       })
 
-      const precio = limpiarPrecio(String(row['Precio'] || '0'))
+      const precio = limpiarPrecio(row['Precio'])
+      preciosDebug.push(precio)
 
       let fechaActividad = null
       const fechaStr = String(row['Fecha Actividad'] || '')
@@ -195,13 +205,21 @@ export async function POST(request: Request) {
       })
     }
 
+    // Log de debug para verificar precios
+    console.log('🔍 DEBUG PRECIOS - Primeros 10:', preciosDebug.slice(0, 10))
+    console.log(' DEBUG PRECIOS - Total insertados:', actividadesParaInsertar.length)
+    console.log(' DEBUG PRECIOS - Suma total:', preciosDebug.reduce((a, b) => a + b, 0))
+
     let insertados = 0
     if (actividadesParaInsertar.length > 0) {
       const { error: errorInsert } = await supabase
         .from('actividades_diarias')
         .insert(actividadesParaInsertar)
       
-      if (errorInsert) throw errorInsert
+      if (errorInsert) {
+        console.error('❌ Error insertando:', errorInsert)
+        throw errorInsert
+      }
       insertados = actividadesParaInsertar.length
     }
 
@@ -215,11 +233,15 @@ export async function POST(request: Request) {
       noEncontrados: noEncontrados,
       tecnicosUnicos: tecnicosProcesados.size,
       tecnicosEncontrados: tecnicosProcesados.size - noEncontrados.length,
-      detallesMatching: encontrados
+      detallesMatching: encontrados,
+      debugPrecios: {
+        primeros10: preciosDebug.slice(0, 10),
+        sumaTotal: preciosDebug.reduce((a, b) => a + b, 0)
+      }
     })
 
   } catch (error: any) {
-    console.error('❌ Error importando productividad:', error)
+    console.error(' Error importando productividad:', error)
     return NextResponse.json({ 
       error: error.message || 'Error desconocido al procesar el archivo' 
     }, { status: 500 })
