@@ -9,6 +9,13 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+interface TecnicoStats {
+  id: string
+  nombre: string
+  servicios: number
+  ingresos: number
+}
+
 export default function ProductividadPage() {
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({
@@ -16,35 +23,73 @@ export default function ProductividadPage() {
     totalIngresos: 0,
     tecnicosActivos: 0
   })
+  const [ranking, setRanking] = useState<TecnicoStats[]>([])
 
   useEffect(() => {
-    cargarEstadisticas()
+    cargarDatos()
   }, [])
 
-  const cargarEstadisticas = async () => {
+  const cargarDatos = async () => {
     setLoading(true)
     try {
-      // Obtener total de actividades e ingresos del mes actual
       const hoy = new Date()
       const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0]
       
-      const { data, error } = await supabase
+      // 1. Obtener todas las actividades del mes
+      const { data: actividades, error } = await supabase
         .from('actividades_diarias')
-        .select('precio, empleado_id')
+        .select('empleado_id, precio, fecha_actividad')
         .gte('fecha_actividad', primerDiaMes)
 
-      if (!error && data) {
-        const totalIngresos = data.reduce((sum: number, item: any) => sum + (item.precio || 0), 0)
-        const tecnicosUnicos = new Set(data.map((item: any) => item.empleado_id)).size
-        
-        setStats({
-          totalActividades: data.length,
-          totalIngresos,
-          tecnicosActivos: tecnicosUnicos
-        })
+      if (error) throw error
+
+      // 2. Calcular totales para las tarjetas
+      const totalIngresos = actividades.reduce((sum: number, item: any) => sum + (item.precio || 0), 0)
+      const tecnicosUnicos = new Set(actividades.map((item: any) => item.empleado_id)).size
+      
+      setStats({
+        totalActividades: actividades.length,
+        totalIngresos,
+        tecnicosActivos: tecnicosUnicos
+      })
+
+      // 3. Agrupar datos por técnico para la tabla
+      const grouped: Record<string, { servicios: number; ingresos: number }> = {}
+      actividades.forEach((act: any) => {
+        if (!grouped[act.empleado_id]) {
+          grouped[act.empleado_id] = { servicios: 0, ingresos: 0 }
+        }
+        grouped[act.empleado_id].servicios += 1
+        grouped[act.empleado_id].ingresos += act.precio
+      })
+
+      // 4. Obtener nombres de los empleados
+      const empleadoIds = Object.keys(grouped)
+      if (empleadoIds.length > 0) {
+        const { data: empleados } = await supabase
+          .from('empleados')
+          .select('id, nombre_completo')
+          .in('id', empleadoIds)
+
+        const empleadosMap = new Map(empleados?.map(e => [e.id, e.nombre_completo]) || [])
+
+        // 5. Armar el ranking ordenado por ingresos
+        const tablaDatos: TecnicoStats[] = Object.entries(grouped)
+          .map(([id, data]) => ({
+            id,
+            nombre: empleadosMap.get(id) || 'Técnico no identificado',
+            servicios: data.servicios,
+            ingresos: data.ingresos
+          }))
+          .sort((a, b) => b.ingresos - a.ingresos) // Ordenar de mayor a menor ingreso
+
+        setRanking(tablaDatos)
+      } else {
+        setRanking([])
       }
+
     } catch (error) {
-      console.error('Error cargando estadísticas:', error)
+      console.error('Error cargando datos:', error)
     } finally {
       setLoading(false)
     }
@@ -95,15 +140,60 @@ export default function ProductividadPage() {
         </div>
 
         {/* Módulo de Importación */}
-        <ImportarProductividadDiaria onImportSuccess={cargarEstadisticas} />
+        <ImportarProductividadDiaria onImportSuccess={cargarDatos} />
 
-        {/* Placeholder para el Dashboard de ROI (Fase 4) */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">📊 Dashboard de ROI por Técnico</h2>
-          <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-            <p className="text-lg font-medium">Próximamente: Gráficos y tablas comparativas</p>
-            <p className="text-sm mt-2">Una vez que importes las actividades, aquí verás el ROI, margen y productividad de cada técnico.</p>
+        {/* Tabla de Ranking de Productividad */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">🏆 Ranking de Productividad (Mes Actual)</h2>
+              <p className="text-sm text-gray-500 mt-1">Ordenado por ingresos generados</p>
+            </div>
           </div>
+
+          {ranking.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <p className="text-lg">No hay datos de productividad para este mes.</p>
+              <p className="text-sm mt-2">Importá un archivo Excel diario para comenzar.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Técnico</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Servicios</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ingresos Generados</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Promedio por Servicio</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {ranking.map((tecnico, index) => (
+                    <tr key={tecnico.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {tecnico.nombre}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                          {tecnico.servicios}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-mono font-medium text-green-700">
+                        {formatMoney(tecnico.ingresos)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-mono text-gray-600">
+                        {formatMoney(tecnico.ingresos / tecnico.servicios)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </div>
