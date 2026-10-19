@@ -9,40 +9,16 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-interface Actividad {
-  id: string
-  actividad_id: string
-  orden_id: string
-  tipo_tramite: string
-  denominacion: string
-  precio: number
-  empleado_id: string
-  tecnico_nombre: string
-  provincia: string
-  centro: string
-  fecha_actividad: string
-  created_at: string
-}
-
-interface TecnicoStats {
-  id: string
-  nombre: string
-  provincia: string
-  servicios: number
-  ingresos: number
-}
-
-interface FechaStats {
-  fecha: string
-  actividades: number
-  ingresos: number
-  tecnicos: number
-}
-
 export default function ProductividadPage() {
   const [loading, setLoading] = useState(true)
-  const [actividades, setActividades] = useState<Actividad[]>([])
-  const [empleados, setEmpleados] = useState<Map<string, string>>(new Map())
+  const [actividades, setActividades] = useState<any[]>([])
+  const [stats, setStats] = useState({
+    totalActividades: 0,
+    totalIngresos: 0,
+    tecnicosActivos: 0
+  })
+  const [ranking, setRanking] = useState<any[]>([])
+  const [porFecha, setPorFecha] = useState<any[]>([])
   
   // Filtros
   const [fechaDesde, setFechaDesde] = useState('')
@@ -63,26 +39,16 @@ export default function ProductividadPage() {
   const cargarDatosIniciales = async () => {
     setLoading(true)
     try {
-      // Cargar todas las actividades
+      // ✅ CORRECCIÓN: Traer TODAS las actividades (sin límite de 1000)
       const { data: actividadesData, error } = await supabase
         .from('actividades_diarias')
         .select('*')
+        .range(0, 100000) // Traer hasta 100,000 registros
         .order('fecha_actividad', { ascending: false })
 
       if (error) throw error
 
       setActividades(actividadesData || [])
-
-      // Cargar empleados para mapear nombres
-      const { data: empleadosData } = await supabase
-        .from('empleados')
-        .select('id, nombre_completo')
-
-      const empleadosMap = new Map<string, string>()
-      empleadosData?.forEach(emp => {
-        empleadosMap.set(emp.id, emp.nombre_completo)
-      })
-      setEmpleados(empleadosMap)
 
       // Extraer valores únicos para filtros
       if (actividadesData && actividadesData.length > 0) {
@@ -107,47 +73,87 @@ export default function ProductividadPage() {
     }
   }
 
-  // Aplicar filtros
-  const actividadesFiltradas = actividades.filter(act => {
-    if (fechaDesde && act.fecha_actividad < fechaDesde) return false
-    if (fechaHasta && act.fecha_actividad > fechaHasta) return false
-    if (filtroProvincia !== 'todas' && act.provincia !== filtroProvincia) return false
-    if (filtroCentro !== 'todos' && act.centro !== filtroCentro) return false
-    if (filtroTecnico !== 'todos' && act.tecnico_nombre !== filtroTecnico) return false
-    return true
-  })
+  // ✅ CORRECCIÓN: Recalcular todo cuando cambian los filtros
+  useEffect(() => {
+    if (actividades.length > 0) {
+      aplicarFiltros()
+    }
+  }, [actividades, fechaDesde, fechaHasta, filtroProvincia, filtroCentro, filtroTecnico])
 
-  // Calcular estadísticas
-  const totalActividades = actividadesFiltradas.length
-  const totalIngresos = actividadesFiltradas.reduce((sum, act) => sum + (act.precio || 0), 0)
-  const tecnicosUnicos = new Set(actividadesFiltradas.map(a => a.empleado_id)).size
+  const aplicarFiltros = () => {
+    const actividadesFiltradas = actividades.filter(act => {
+      if (fechaDesde && act.fecha_actividad < fechaDesde) return false
+      if (fechaHasta && act.fecha_actividad > fechaHasta) return false
+      if (filtroProvincia !== 'todas' && act.provincia !== filtroProvincia) return false
+      if (filtroCentro !== 'todos' && act.centro !== filtroCentro) return false
+      if (filtroTecnico !== 'todos' && act.tecnico_nombre !== filtroTecnico) return false
+      return true
+    })
 
-  // Agrupar por técnico
-  const ranking: TecnicoStats[] = Object.entries(
-    actividadesFiltradas.reduce((acc: any, act) => {
-      if (!acc[act.empleado_id]) {
-        acc[act.empleado_id] = { id: act.empleado_id, nombre: empleados.get(act.empleado_id) || act.tecnico_nombre, provincia: act.provincia, servicios: 0, ingresos: 0 }
+    // Calcular estadísticas
+    const totalActividades = actividadesFiltradas.length
+    const totalIngresos = actividadesFiltradas.reduce((sum, act) => sum + (act.precio || 0), 0)
+    const tecnicosUnicos = new Set(actividadesFiltradas.map(a => a.empleado_id)).size
+
+    setStats({
+      totalActividades,
+      totalIngresos,
+      tecnicosActivos: tecnicosUnicos
+    })
+
+    // Agrupar por técnico para el ranking
+    const groupedByTecnico: Record<string, any> = {}
+    actividadesFiltradas.forEach(act => {
+      if (!groupedByTecnico[act.empleado_id]) {
+        groupedByTecnico[act.empleado_id] = {
+          id: act.empleado_id,
+          nombre: act.tecnico_nombre,
+          provincia: act.provincia,
+          servicios: 0,
+          ingresos: 0
+        }
       }
-      acc[act.empleado_id].servicios += 1
-      acc[act.empleado_id].ingresos += act.precio
-      return acc
-    }, {})
-  ).map(([_, data]) => data as TecnicoStats)
-    .sort((a, b) => b.ingresos - a.ingresos)
+      groupedByTecnico[act.empleado_id].servicios += 1
+      groupedByTecnico[act.empleado_id].ingresos += act.precio
+    })
 
-  // Agrupar por fecha
-  const porFecha: FechaStats[] = Object.entries(
-    actividadesFiltradas.reduce((acc: any, act) => {
-      if (!acc[act.fecha_actividad]) {
-        acc[act.fecha_actividad] = { fecha: act.fecha_actividad, actividades: 0, ingresos: 0, tecnicos: new Set() }
+    const rankingData = Object.values(groupedByTecnico)
+      .sort((a, b) => b.ingresos - a.ingresos)
+
+    setRanking(rankingData)
+
+    // Agrupar por fecha para la evolución diaria
+    const groupedByFecha: Record<string, any> = {}
+    actividadesFiltradas.forEach(act => {
+      if (!act.fecha_actividad) return
+      
+      if (!groupedByFecha[act.fecha_actividad]) {
+        groupedByFecha[act.fecha_actividad] = {
+          fecha: act.fecha_actividad,
+          actividades: 0,
+          ingresos: 0,
+          tecnicos: new Set()
+        }
       }
-      acc[act.fecha_actividad].actividades += 1
-      acc[act.fecha_actividad].ingresos += act.precio
-      acc[act.fecha_actividad].tecnicos.add(act.empleado_id)
-      return acc
-    }, {})
-  ).map(([_, data]) => ({ ...data, tecnicos: data.tecnicos.size }))
-    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+      groupedByFecha[act.fecha_actividad].actividades += 1
+      groupedByFecha[act.fecha_actividad].ingresos += act.precio
+      groupedByFecha[act.fecha_actividad].tecnicos.add(act.empleado_id)
+    })
+
+    const porFechaData = Object.values(groupedByFecha)
+      .map(item => ({ ...item, tecnicos: item.tecnicos.size }))
+      .sort((a, b) => a.fecha.localeCompare(b.fecha))
+
+    setPorFecha(porFechaData)
+  }
+
+  const handleLimpiarFiltros = () => {
+    setFechaDesde('')
+    setFechaHasta('')
+    setFiltroProvincia('todas')
+    setFiltroCentro('todos')
+    setFiltroTecnico('todos')
+  }
 
   const formatMoney = (amount: number) => {
     return new Intl.NumberFormat('es-AR', {
@@ -162,14 +168,6 @@ export default function ProductividadPage() {
     if (!date) return '-'
     const [year, month, day] = date.split('-')
     return `${day}/${month}/${year}`
-  }
-
-  const handleLimpiarFiltros = () => {
-    setFechaDesde('')
-    setFechaHasta('')
-    setFiltroProvincia('todas')
-    setFiltroCentro('todos')
-    setFiltroTecnico('todos')
   }
 
   if (loading) {
@@ -275,31 +273,31 @@ export default function ProductividadPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <p className="text-sm font-semibold text-gray-500 uppercase">Actividades</p>
-            <p className="text-3xl font-bold text-blue-600 mt-2">{totalActividades}</p>
+            <p className="text-3xl font-bold text-blue-600 mt-2">{stats.totalActividades.toLocaleString('es-AR')}</p>
             <p className="text-xs text-gray-500 mt-1">en el período seleccionado</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <p className="text-sm font-semibold text-gray-500 uppercase">Ingresos Generados</p>
-            <p className="text-3xl font-bold text-green-600 mt-2">{formatMoney(totalIngresos)}</p>
+            <p className="text-3xl font-bold text-green-600 mt-2">{formatMoney(stats.totalIngresos)}</p>
             <p className="text-xs text-gray-500 mt-1">total facturado</p>
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <p className="text-sm font-semibold text-gray-500 uppercase">Técnicos Activos</p>
-            <p className="text-3xl font-bold text-purple-600 mt-2">{tecnicosUnicos}</p>
+            <p className="text-3xl font-bold text-purple-600 mt-2">{stats.tecnicosActivos}</p>
             <p className="text-xs text-gray-500 mt-1">con actividad registrada</p>
           </div>
         </div>
 
-        {/* Evolución Diaria */}
+        {/* Evolución Diaria - AHORA CON SCROLL */}
         {porFecha.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="p-6 border-b border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900">📅 Evolución Diaria</h2>
-              <p className="text-sm text-gray-500 mt-1">Actividades e ingresos por día</p>
+              <p className="text-sm text-gray-500 mt-1">Actividades e ingresos por día ({porFecha.length} días)</p>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-96 overflow-y-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 sticky top-0">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actividades</th>
@@ -362,7 +360,7 @@ export default function ProductividadPage() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {ranking.map((tecnico, index) => (
-                    <tr key={tecnico.id} className="hover:bg-gray-50">
+                    <tr key={tecnico.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
                       </td>
