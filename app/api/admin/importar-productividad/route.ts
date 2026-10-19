@@ -7,6 +7,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Normalizar texto: quitar acentos, minúsculas, espacios extra
 function normalizarTexto(texto: string): string {
   return String(texto || '')
     .normalize('NFD')
@@ -16,17 +17,16 @@ function normalizarTexto(texto: string): string {
     .replace(/\s+/g, ' ')
 }
 
-function extraerPalabras(nombre: string): string[] {
-  const palabrasIgnorar = new Set(['de', 'la', 'del', 'los', 'las', 'y', 'e', 'el'])
+// Extraer palabras clave de un nombre
+function extraerPalabrasClave(nombre: string): string[] {
+  const palabrasIgnorar = new Set(['de', 'la', 'del', 'los', 'las', 'y', 'e', 'el', 'por', 'para', 'con', 'sin'])
   return normalizarTexto(nombre)
     .split(/[\s,]+/)
     .filter(p => p.length > 2 && !palabrasIgnorar.has(p))
 }
 
-function calcularSimilitudMejorada(nombre1: string, nombre2: string): number {
-  const palabras1 = extraerPalabras(nombre1)
-  const palabras2 = extraerPalabras(nombre2)
-  
+// Calcular similitud entre dos conjuntos de palabras
+function calcularSimilitud(palabras1: string[], palabras2: string[]): number {
   if (palabras1.length === 0 || palabras2.length === 0) return 0
   
   let coincidencias = 0
@@ -40,19 +40,21 @@ function calcularSimilitudMejorada(nombre1: string, nombre2: string): number {
   return coincidencias / maxPalabras
 }
 
+// Buscar el mejor match para un nombre
 function buscarMejorMatch(
   nombreBuscado: string,
   empleados: any[]
 ): { empleado: any; similitud: number } | null {
-  const nombreNorm = normalizarTexto(nombreBuscado)
+  const palabrasBuscadas = extraerPalabrasClave(nombreBuscado)
   
   let mejorMatch: any = null
   let mejorSimilitud = 0
   
   for (const emp of empleados) {
-    const similitud = calcularSimilitudMejorada(nombreNorm, emp.nombre_completo)
+    const palabrasEmpleado = extraerPalabrasClave(emp.nombre_completo)
+    const similitud = calcularSimilitud(palabrasBuscadas, palabrasEmpleado)
     
-    if (similitud > mejorSimilitud && similitud >= 0.3) {
+    if (similitud > mejorSimilitud && similitud >= 0.4) {
       mejorSimilitud = similitud
       mejorMatch = emp
     }
@@ -61,7 +63,7 @@ function buscarMejorMatch(
   return mejorMatch ? { empleado: mejorMatch, similitud: mejorSimilitud } : null
 }
 
-// ✅ FUNCIÓN MEJORADA: Limpia precios en CUALQUIER formato
+// Función inteligente para limpiar precios
 function limpiarPrecio(precioInput: any): number {
   if (precioInput === null || precioInput === undefined) return 0
   
@@ -72,7 +74,7 @@ function limpiarPrecio(precioInput: any): number {
   
   let precioStr = String(precioInput).trim()
   
-  // Eliminar símbolo de dólar y TODOS los espacios
+  // Eliminar símbolo de dólar y espacios
   precioStr = precioStr.replace(/[\$\s]/g, '')
   
   if (precioStr === '') return 0
@@ -95,25 +97,10 @@ function limpiarPrecio(precioInput: any): number {
   return isNaN(precio) ? 0 : precio
 }
 
-// ✅ FUNCIÓN NUEVA: Busca el valor de una columna de forma FLEXIBLE
-function obtenerValor(row: any, nombresPosibles: string[]): any {
-  for (const nombre of nombresPosibles) {
-    // Buscar coincidencia exacta
-    if (row[nombre] !== undefined && row[nombre] !== null && row[nombre] !== '') {
-      return row[nombre]
-    }
-    
-    // Buscar coincidencia parcial (ignorando mayúsculas/minúsculas)
-    const nombreNorm = normalizarTexto(nombre)
-    for (const key of Object.keys(row)) {
-      if (normalizarTexto(key).includes(nombreNorm) || nombreNorm.includes(normalizarTexto(key))) {
-        if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
-          return row[key]
-        }
-      }
-    }
-  }
-  return null
+// Verificar si una fila es un header repetido
+function esHeaderRepetido(row: any): boolean {
+  const primeraColumna = String(row['Actividad'] || row['actividad'] || '').trim()
+  return primeraColumna === 'Actividad' || primeraColumna === ''
 }
 
 export async function POST(request: Request) {
@@ -133,6 +120,8 @@ export async function POST(request: Request) {
     const worksheet = workbook.Sheets[sheetName]
     const data: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
 
+    console.log(`📊 Total de filas leídas de la hoja "${sheetName}": ${data.length}`)
+
     if (data.length === 0) {
       return NextResponse.json({ error: 'La hoja de cálculo está vacía' }, { status: 400 })
     }
@@ -144,29 +133,39 @@ export async function POST(request: Request) {
 
     if (errorEmpleados) throw errorEmpleados
 
+    console.log(`👥 Total de empleados en la base de datos: ${empleados?.length || 0}`)
+
     const actividadesParaInsertar = []
     const tecnicosProcesados = new Map<string, { encontrado: boolean; empleadoId?: string }>()
     const detallesMatching: Array<{ tecnico: string; encontrado: boolean; similitud?: number; empleado?: string }> = []
     let preciosDebug: number[] = []
+    let filasSaltadas = 0
 
     for (const row of data) {
-      // ✅ BÚSQUEDA FLEXIBLE DE NOMBRE DE TÉCNICO (maneja ambos formatos)
+      // Saltar filas de headers repetidos
+      if (esHeaderRepetido(row)) {
+        filasSaltadas++
+        continue
+      }
+
+      // Buscar el nombre del técnico de forma flexible
       const tecnicoNombre = String(
-        obtenerValor(row, ['Técnico', 'Tecnico', 'tecnico', 'TÉCNICO']) || ''
+        row['Técnico'] || row['Tecnico'] || row['tecnico'] || row['TÉCNICO'] || ''
       ).trim()
       
-      if (!tecnicoNombre || tecnicoNombre === 'Técnico' || tecnicoNombre === 'Tecnico') continue
+      if (!tecnicoNombre) continue
 
-      // ✅ BÚSQUEDA FLEXIBLE DE PRECIO (maneja ambos formatos)
-      const precioRaw = obtenerValor(row, ['Precio', 'precio', 'Precio ', ' precio', 'PRECIO'])
+      // Buscar el precio de forma flexible
+      const precioRaw = row['Precio'] || row['precio'] || row['Precio '] || row[' precio'] || row['PRECIO'] || 0
       const precio = limpiarPrecio(precioRaw)
       preciosDebug.push(precio)
 
-      // ✅ BÚSQUEDA FLEXIBLE DE FECHA
+      // Buscar la fecha
       const fechaRaw = String(
-        obtenerValor(row, ['Fecha Actividad', 'FechaActividad', 'fecha_actividad', 'Fecha', 'FECHA ACTIVIDAD']) || ''
+        row['Fecha Actividad'] || row['FechaActividad'] || row['fecha_actividad'] || row['Fecha'] || row['FECHA ACTIVIDAD'] || ''
       ).trim()
 
+      // Si ya procesamos este técnico, reusar el resultado
       if (tecnicosProcesados.has(tecnicoNombre)) {
         const info = tecnicosProcesados.get(tecnicoNombre)!
         if (!info.encontrado || !info.empleadoId) continue
@@ -180,21 +179,22 @@ export async function POST(request: Request) {
         }
 
         actividadesParaInsertar.push({
-          actividad_id: String(obtenerValor(row, ['Actividad', 'actividad', 'ACTIVIDAD']) || ''),
-          orden_id: String(obtenerValor(row, ['Orden', 'Orden Trab.  STL/TOA', 'orden', 'ORDEN']) || ''),
-          tipo_tramite: String(obtenerValor(row, ['Tipo Trámite', 'Tipo Tramite', 'tipo_tramite', 'TIPO TRÁMITE']) || ''),
-          denominacion: String(obtenerValor(row, ['Denominación', 'Denominacion', 'Descrip. Trámite', 'Descrip. Tramite', 'DESCRIPCIÓN SERVICIO']) || ''),
-          servicio_id: String(obtenerValor(row, ['Servicio', 'servicio', 'SERVICIO']) || ''),
+          actividad_id: String(row['Actividad'] || row['actividad'] || ''),
+          orden_id: String(row['Orden'] || row['Orden Trab.  STL/TOA'] || row['orden'] || row['ORDEN'] || ''),
+          tipo_tramite: String(row['Tipo Trámite'] || row['Tipo Tramite'] || row['tipo_tramite'] || row['TIPO TRÁMITE'] || ''),
+          denominacion: String(row['Denominación'] || row['Denominacion'] || row['Descrip. Trámite'] || row['Descrip. Tramite'] || row['DESCRIPCIÓN SERVICIO'] || ''),
+          servicio_id: String(row['Servicio'] || row['servicio'] || row['SERVICIO'] || ''),
           precio: precio,
           empleado_id: info.empleadoId,
           tecnico_nombre: tecnicoNombre,
-          provincia: String(obtenerValor(row, ['Provincia', 'provincia', 'Tipo de Agrupador', 'PROVINCIA']) || ''),
-          centro: String(obtenerValor(row, ['Centro', 'centro', 'Orden de Compra', 'CENTRO']) || ''),
+          provincia: String(row['Provincia'] || row['provincia'] || row['Tipo de Agrupador'] || row['PROVINCIA'] || ''),
+          centro: String(row['Centro'] || row['centro'] || row['Orden de Compra'] || row['CENTRO'] || ''),
           fecha_actividad: fechaActividad
         })
         continue
       }
 
+      // Buscar el mejor match para este técnico
       const match = buscarMejorMatch(tecnicoNombre, empleados || [])
 
       if (!match) {
@@ -220,25 +220,30 @@ export async function POST(request: Request) {
       }
 
       actividadesParaInsertar.push({
-        actividad_id: String(obtenerValor(row, ['Actividad', 'actividad', 'ACTIVIDAD']) || ''),
-        orden_id: String(obtenerValor(row, ['Orden', 'Orden Trab.  STL/TOA', 'orden', 'ORDEN']) || ''),
-        tipo_tramite: String(obtenerValor(row, ['Tipo Trámite', 'Tipo Tramite', 'tipo_tramite', 'TIPO TRÁMITE']) || ''),
-        denominacion: String(obtenerValor(row, ['Denominación', 'Denominacion', 'Descrip. Trámite', 'Descrip. Tramite', 'DESCRIPCIÓN SERVICIO']) || ''),
-        servicio_id: String(obtenerValor(row, ['Servicio', 'servicio', 'SERVICIO']) || ''),
+        actividad_id: String(row['Actividad'] || row['actividad'] || ''),
+        orden_id: String(row['Orden'] || row['Orden Trab.  STL/TOA'] || row['orden'] || row['ORDEN'] || ''),
+        tipo_tramite: String(row['Tipo Trámite'] || row['Tipo Tramite'] || row['tipo_tramite'] || row['TIPO TRÁMITE'] || ''),
+        denominacion: String(row['Denominación'] || row['Denominacion'] || row['Descrip. Trámite'] || row['Descrip. Tramite'] || row['DESCRIPCIÓN SERVICIO'] || ''),
+        servicio_id: String(row['Servicio'] || row['servicio'] || row['SERVICIO'] || ''),
         precio: precio,
         empleado_id: match.empleado.id,
         tecnico_nombre: tecnicoNombre,
-        provincia: String(obtenerValor(row, ['Provincia', 'provincia', 'Tipo de Agrupador', 'PROVINCIA']) || ''),
-        centro: String(obtenerValor(row, ['Centro', 'centro', 'Orden de Compra', 'CENTRO']) || ''),
+        provincia: String(row['Provincia'] || row['provincia'] || row['Tipo de Agrupador'] || row['PROVINCIA'] || ''),
+        centro: String(row['Centro'] || row['centro'] || row['Orden de Compra'] || row['CENTRO'] || ''),
         fecha_actividad: fechaActividad
       })
     }
 
     // Log de debug
-    console.log('🔍 DEBUG PRECIOS - Primeros 10:', preciosDebug.slice(0, 10))
-    console.log('📊 DEBUG PRECIOS - Total insertados:', actividadesParaInsertar.length)
-    console.log('💰 DEBUG PRECIOS - Suma total:', preciosDebug.reduce((a, b) => a + b, 0))
+    console.log(`🔍 Filas saltadas (headers): ${filasSaltadas}`)
+    console.log(`📊 Total de actividades para insertar: ${actividadesParaInsertar.length}`)
+    console.log(` Primeros 10 precios: ${preciosDebug.slice(0, 10)}`)
+    console.log(`💰 Suma total de precios: ${preciosDebug.reduce((a, b) => a + b, 0)}`)
+    console.log(`👥 Técnicos únicos: ${tecnicosProcesados.size}`)
+    console.log(`✅ Técnicos encontrados: ${detallesMatching.filter(d => d.encontrado).length}`)
+    console.log(`❌ Técnicos no encontrados: ${detallesMatching.filter(d => !d.encontrado).map(d => d.tecnico)}`)
 
+    // Insertar en Supabase
     let insertados = 0
     if (actividadesParaInsertar.length > 0) {
       const { error: errorInsert } = await supabase
@@ -253,16 +258,16 @@ export async function POST(request: Request) {
     }
 
     const noEncontrados = detallesMatching.filter(d => !d.encontrado).map(d => d.tecnico)
-    const encontrados = detallesMatching.filter(d => d.encontrado)
 
     return NextResponse.json({
       success: true,
       totalFilas: data.length,
+      filasSaltadas: filasSaltadas,
       insertadas: insertados,
       noEncontrados: noEncontrados,
       tecnicosUnicos: tecnicosProcesados.size,
-      tecnicosEncontrados: tecnicosProcesados.size - noEncontrados.length,
-      detallesMatching: encontrados,
+      tecnicosEncontrados: detallesMatching.filter(d => d.encontrado).length,
+      detallesMatching: detallesMatching.filter(d => d.encontrado),
       debugPrecios: {
         primeros10: preciosDebug.slice(0, 10),
         sumaTotal: preciosDebug.reduce((a, b) => a + b, 0)
