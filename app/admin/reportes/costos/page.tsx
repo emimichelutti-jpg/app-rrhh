@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import * as XLSX from 'xlsx'
 import ImportarIncentivos from '@/components/ImportarIncentivos'
 
 const supabase = createClient(
@@ -21,7 +22,7 @@ interface EmpleadoCosto {
   sueldo_real: number
   incentivo: number
   total_final: number
-  costo_base_empleador: number // 🔑 NUEVO: costo empleador SIN sueldo neto (inmutable)
+  costo_base_empleador: number
   costo_total_empleador: number
   ingresos_productividad: number
   roi: number
@@ -98,7 +99,9 @@ export default function ReporteCostosPage() {
         if (!emp) return
 
         const empId = emp.id
-        const localidad = emp.localidad || emp.zonas?.nombre || 'Sin localidad'
+        // La zona se toma de Gestión de Zonas (zonas.nombre).
+        // Si el empleado aún no tiene zona asignada, cae a la localidad manual.
+        const localidad = emp.zonas?.nombre || emp.localidad || 'Sin localidad'
         localidadesSet.add(localidad)
 
         if (!empleadosMap.has(empId)) {
@@ -131,7 +134,7 @@ export default function ReporteCostosPage() {
 
         empData.total_sueldo_recibo = empData.quincena_1ra + empData.quincena_2da + empData.mensual
 
-        // 🔑 Base inmutable: costo empleador oficial MENOS el neto (aportes/cargas)
+        // Base inmutable: costo empleador oficial MENOS el neto (aportes/cargas)
         empData.costo_base_empleador += costo - neto
       })
 
@@ -142,7 +145,7 @@ export default function ReporteCostosPage() {
         }
       })
 
-      // 🔧 REGLA ÚNICA (idéntica a la de edición):
+      // REGLA ÚNICA (idéntica a la de edición):
       // costo = base + sueldo aplicado (real o recibo) + incentivo
       const empleadosArray = Array.from(empleadosMap.values()).map(emp => {
         const sueldoUsar = emp.sueldo_real > 0 ? emp.sueldo_real : emp.total_sueldo_recibo
@@ -237,8 +240,6 @@ export default function ReporteCostosPage() {
             ...emp,
             sueldo_real: nuevoValor,
             total_final: sueldoUsar + emp.incentivo,
-            // 🐛 FIX: recalcula SIEMPRE desde la base inmutable.
-            // Corregir N veces ya no acumula: reemplaza el sueldo anterior.
             costo_total_empleador: emp.costo_base_empleador + sueldoUsar + emp.incentivo
           }
         }
@@ -324,6 +325,74 @@ export default function ReporteCostosPage() {
     link.click()
   }
 
+  // 💳 PLANILLA DE PAGO DE SUELDOS (quincena):
+  // - Solo pagos de la quincena según recibo (1ª, 2ª o mensual).
+  // - SIN incentivos (se pagan por separado antes de fin de mes).
+  // - El "Sueldo Real" aparece SOLO en los casos excepcionales cargados.
+  // - Respeta los filtros activos (podés exportar una sola zona = un depósito).
+  const exportarPlanillaPago = () => {
+    const filas = empleadosFiltrados
+      .slice()
+      .sort((a, b) => (parseInt(a.legajo) || 0) - (parseInt(b.legajo) || 0) || a.nombre.localeCompare(b.nombre))
+      .map(emp => [
+        emp.legajo,
+        emp.nombre,
+        emp.localidad,
+        emp.quincena_1ra,
+        emp.quincena_2da,
+        emp.mensual,
+        emp.total_sueldo_recibo,
+        emp.sueldo_real > 0 ? emp.sueldo_real : ''
+      ])
+
+    const header = [
+      'Legajo', 'Técnico', 'Zona',
+      '1ª Quincena', '2ª Quincena', 'Mensual',
+      'Total Recibo', 'Sueldo Real (excepción)'
+    ]
+    const totalesRow = [
+      '', '', 'TOTALES',
+      totales.quincena_1ra, totales.quincena_2da, totales.mensual,
+      totales.total_sueldo_recibo, ''
+    ]
+
+    const ws = XLSX.utils.aoa_to_sheet([header, ...filas, totalesRow])
+    ws['!cols'] = [
+      { wch: 8 }, { wch: 32 }, { wch: 16 },
+      { wch: 13 }, { wch: 13 }, { wch: 13 },
+      { wch: 14 }, { wch: 22 }
+    ]
+
+    // Resumen por zona: un pago/depósito por sucursal, también sin incentivos
+    const porZona = new Map<string, { emp: number; q1: number; q2: number; men: number; total: number; real: number }>()
+    empleadosFiltrados.forEach(e => {
+      const z = porZona.get(e.localidad) || { emp: 0, q1: 0, q2: 0, men: 0, total: 0, real: 0 }
+      z.emp += 1
+      z.q1 += e.quincena_1ra
+      z.q2 += e.quincena_2da
+      z.men += e.mensual
+      z.total += e.total_sueldo_recibo
+      z.real += e.sueldo_real > 0 ? e.sueldo_real : 0
+      porZona.set(e.localidad, z)
+    })
+    const resumen = Array.from(porZona.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([zona, z]) => [zona, z.emp, z.q1, z.q2, z.men, z.total, z.real > 0 ? z.real : ''])
+
+    const ws2 = XLSX.utils.aoa_to_sheet([
+      ['Zona', 'Empleados', '1ª Quincena', '2ª Quincena', 'Mensual', 'Total Recibo', 'Sueldo Real (excepción)'],
+      ...resumen
+    ])
+    ws2['!cols'] = [
+      { wch: 16 }, { wch: 10 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 22 }
+    ]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Pago Sueldos')
+    XLSX.utils.book_append_sheet(wb, ws2, 'Resumen por Zona')
+    XLSX.writeFile(wb, `planilla_pago_sueldos_${periodo}.xlsx`)
+  }
+
   const formatMoney = (amount: number) => {
     return new Intl.NumberFormat('es-AR', {
       style: 'currency',
@@ -374,6 +443,13 @@ export default function ReporteCostosPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
               </svg>
               Importar Incentivos
+            </button>
+            <button
+              onClick={exportarPlanillaPago}
+              className="bg-emerald-600 text-white px-6 py-3 rounded-lg hover:bg-emerald-700 flex items-center gap-2 shadow-sm font-medium transition-colors"
+              title="Excel con los pagos de la quincena según recibo (sin incentivos) y sueldo real en casos excepcionales"
+            >
+              💳 Planilla de Pago
             </button>
             <button
               onClick={exportarCSV}
@@ -618,7 +694,8 @@ export default function ReporteCostosPage() {
           {filtroTipo !== 'todos' && ` • Filtrado: ${filtroTipo}`}
           {filtroLocalidad !== 'todas' && ` • Localidad: ${filtroLocalidad}`}
           <p className="mt-1 text-xs text-gray-400">
-            💡 El campo "Sueldo Real" permite ajustar el sueldo cuando hay pagos en negro. Si está vacío, se usa el sueldo del recibo.
+            💡 "Planilla de Pago" exporta solo los pagos de la quincena según recibo (sin incentivos) y el sueldo real en casos excepcionales.
+            La zona se toma de Gestión de Zonas cuando el empleado tiene zona asignada.
           </p>
         </div>
       </div>
