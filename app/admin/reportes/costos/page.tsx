@@ -21,6 +21,7 @@ interface EmpleadoCosto {
   sueldo_real: number
   incentivo: number
   total_final: number
+  costo_base_empleador: number // 🔑 NUEVO: costo empleador SIN sueldo neto (inmutable)
   costo_total_empleador: number
   ingresos_productividad: number
   roi: number
@@ -75,7 +76,7 @@ export default function ReporteCostosPage() {
       const [year, month] = periodo.split('-')
       const primerDia = `${periodo}-01`
       const ultimoDiaMes = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0]
-      
+
       const { data: actividades } = await supabase
         .from('actividades_diarias')
         .select('empleado_id, precio')
@@ -101,7 +102,6 @@ export default function ReporteCostosPage() {
         localidadesSet.add(localidad)
 
         if (!empleadosMap.has(empId)) {
-          const sueldoReal = emp.sueldo_real_mensual || 0
           empleadosMap.set(empId, {
             legajo: emp.legajo || '-',
             empleado_id: empId,
@@ -111,9 +111,10 @@ export default function ReporteCostosPage() {
             quincena_2da: 0,
             mensual: 0,
             total_sueldo_recibo: 0,
-            sueldo_real: sueldoReal,
+            sueldo_real: emp.sueldo_real_mensual || 0,
             incentivo: 0,
             total_final: 0,
+            costo_base_empleador: 0,
             costo_total_empleador: 0,
             ingresos_productividad: ingresosPorEmpleado.get(empId) || 0,
             roi: 0
@@ -129,24 +130,27 @@ export default function ReporteCostosPage() {
         else if (recibo.quincena === 'Mensual') empData.mensual = neto
 
         empData.total_sueldo_recibo = empData.quincena_1ra + empData.quincena_2da + empData.mensual
-        empData.costo_total_empleador += costo
+
+        // 🔑 Base inmutable: costo empleador oficial MENOS el neto (aportes/cargas)
+        empData.costo_base_empleador += costo - neto
       })
 
       incentivos?.forEach(inc => {
         const empData = empleadosMap.get(inc.empleado_id)
         if (empData) {
           empData.incentivo = parseFloat(inc.monto_bruto) || 0
-          empData.costo_total_empleador += empData.incentivo
         }
       })
 
-      // Calcular totales y ROI
+      // 🔧 REGLA ÚNICA (idéntica a la de edición):
+      // costo = base + sueldo aplicado (real o recibo) + incentivo
       const empleadosArray = Array.from(empleadosMap.values()).map(emp => {
-        const costoUsar = emp.sueldo_real > 0 ? emp.sueldo_real : emp.total_sueldo_recibo
-        emp.total_final = costoUsar + emp.incentivo
-        // ROI = (Ingresos - Costo) / Costo × 100
-        const costoTotal = emp.total_final + (emp.costo_total_empleador - emp.total_sueldo_recibo - emp.incentivo)
-        emp.roi = costoTotal > 0 ? ((emp.ingresos_productividad - costoTotal) / costoTotal) * 100 : 0
+        const sueldoUsar = emp.sueldo_real > 0 ? emp.sueldo_real : emp.total_sueldo_recibo
+        emp.total_final = sueldoUsar + emp.incentivo
+        emp.costo_total_empleador = emp.costo_base_empleador + sueldoUsar + emp.incentivo
+        emp.roi = emp.costo_total_empleador > 0
+          ? ((emp.ingresos_productividad - emp.costo_total_empleador) / emp.costo_total_empleador) * 100
+          : 0
         return emp
       })
 
@@ -163,7 +167,7 @@ export default function ReporteCostosPage() {
 
   const handleIncentivoChange = async (empleadoId: string, nuevoValor: number) => {
     setGuardando(empleadoId)
-    
+
     try {
       const { data: existente } = await supabase
         .from('incentivos')
@@ -177,7 +181,7 @@ export default function ReporteCostosPage() {
           .from('incentivos')
           .update({ monto_bruto: nuevoValor })
           .eq('id', existente.id)
-        
+
         if (error) throw error
       } else {
         const { error } = await supabase
@@ -187,23 +191,22 @@ export default function ReporteCostosPage() {
             periodo: periodo,
             monto_bruto: nuevoValor
           })
-        
+
         if (error) throw error
       }
 
       setEmpleados(prev => prev.map(emp => {
         if (emp.empleado_id === empleadoId) {
-          const costoBase = emp.costo_total_empleador - emp.incentivo
+          const sueldoUsar = emp.sueldo_real > 0 ? emp.sueldo_real : emp.total_sueldo_recibo
           return {
             ...emp,
             incentivo: nuevoValor,
-            total_final: (emp.sueldo_real > 0 ? emp.sueldo_real : emp.total_sueldo_recibo) + nuevoValor,
-            costo_total_empleador: costoBase + nuevoValor
+            total_final: sueldoUsar + nuevoValor,
+            costo_total_empleador: emp.costo_base_empleador + sueldoUsar + nuevoValor
           }
         }
         return emp
       }))
-
     } catch (error: any) {
       alert(`Error al guardar el incentivo: ${error.message}`)
     } finally {
@@ -213,7 +216,7 @@ export default function ReporteCostosPage() {
 
   const handleSueldoRealChange = async (empleadoId: string, nuevoValor: number) => {
     setGuardandoSueldo(empleadoId)
-    
+
     try {
       const response = await fetch('/api/admin/actualizar-sueldo-real', {
         method: 'POST',
@@ -230,17 +233,17 @@ export default function ReporteCostosPage() {
       setEmpleados(prev => prev.map(emp => {
         if (emp.empleado_id === empleadoId) {
           const sueldoUsar = nuevoValor > 0 ? nuevoValor : emp.total_sueldo_recibo
-          const costoEmpleadorBase = emp.costo_total_empleador - emp.incentivo - emp.total_sueldo_recibo
           return {
             ...emp,
             sueldo_real: nuevoValor,
             total_final: sueldoUsar + emp.incentivo,
-            costo_total_empleador: costoEmpleadorBase + sueldoUsar + emp.incentivo
+            // 🐛 FIX: recalcula SIEMPRE desde la base inmutable.
+            // Corregir N veces ya no acumula: reemplaza el sueldo anterior.
+            costo_total_empleador: emp.costo_base_empleador + sueldoUsar + emp.incentivo
           }
         }
         return emp
       }))
-
     } catch (error: any) {
       alert(`Error al guardar el sueldo real: ${error.message}`)
     } finally {
@@ -269,15 +272,21 @@ export default function ReporteCostosPage() {
       total_final: acc.total_final + emp.total_final,
       costo_total_empleador: acc.costo_total_empleador + emp.costo_total_empleador,
       ingresos_productividad: acc.ingresos_productividad + emp.ingresos_productividad
-    }), { 
-      quincena_1ra: 0, quincena_2da: 0, mensual: 0, 
+    }), {
+      quincena_1ra: 0, quincena_2da: 0, mensual: 0,
       total_sueldo_recibo: 0, sueldo_real: 0, incentivo: 0, total_final: 0,
       costo_total_empleador: 0, ingresos_productividad: 0
     })
   }, [empleadosFiltrados])
 
+  // Escapa comillas y comas para que el CSV no se desalinee
+  const escapeCSV = (val: any) => {
+    const str = String(val ?? '')
+    return `"${str.replace(/"/g, '""')}"`
+  }
+
   const exportarCSV = () => {
-    const headers = ['Legajo', 'Técnico', 'Localidad', '1ª Quincena', '2ª Quincena', 'Mensual', 'Total Recibo', 'Sueldo Real', 'Incentivo', 'Total Neto', 'Costo Empleador', 'Ingresos Productividad', 'ROI %']
+    const headers = ['Legajo', 'Técnico', 'Localidad', '1ª Quincena', '2ª Quincena', 'Mensual', 'Total Recibo', 'Sueldo Real', 'Incentivo', 'Total Neto', 'Costo Empleador', 'Ingresos Productividad', 'ROI %'].map(escapeCSV)
     const rows = empleadosFiltrados.map(emp => [
       emp.legajo,
       emp.nombre,
@@ -292,12 +301,20 @@ export default function ReporteCostosPage() {
       emp.costo_total_empleador,
       emp.ingresos_productividad,
       emp.roi.toFixed(2)
-    ])
+    ].map(escapeCSV))
+
+    const totalesRow = [
+      '', '', 'TOTALES',
+      totales.quincena_1ra, totales.quincena_2da, totales.mensual,
+      totales.total_sueldo_recibo, totales.sueldo_real || totales.total_sueldo_recibo,
+      totales.incentivo, totales.total_final, totales.costo_total_empleador,
+      totales.ingresos_productividad, ''
+    ].map(escapeCSV)
 
     const csvContent = [
       headers.join(','),
       ...rows.map(row => row.join(',')),
-      ['', '', 'TOTALES', totales.quincena_1ra, totales.quincena_2da, totales.mensual, totales.total_sueldo_recibo, totales.sueldo_real || totales.total_sueldo_recibo, totales.incentivo, totales.total_final, totales.costo_total_empleador, totales.ingresos_productividad, ''].join(',')
+      totalesRow.join(',')
     ].join('\n')
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -308,11 +325,11 @@ export default function ReporteCostosPage() {
   }
 
   const formatMoney = (amount: number) => {
-    return new Intl.NumberFormat('es-AR', { 
-      style: 'currency', 
-      currency: 'ARS', 
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS',
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0 
+      maximumFractionDigits: 0
     }).format(amount)
   }
 
@@ -433,7 +450,7 @@ export default function ReporteCostosPage() {
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center text-2xl"></div>
+              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center text-2xl">💵</div>
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase">Total Neto Empleados</p>
                 <p className="text-2xl font-bold text-green-700">{formatMoney(totales.total_final)}</p>
@@ -460,11 +477,11 @@ export default function ReporteCostosPage() {
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center text-2xl"></div>
+              <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center text-2xl">🎯</div>
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase">ROI Promedio</p>
                 <p className="text-2xl font-bold text-indigo-700">
-                  {totales.costo_total_empleador > 0 
+                  {totales.costo_total_empleador > 0
                     ? (((totales.ingresos_productividad - totales.costo_total_empleador) / totales.costo_total_empleador) * 100).toFixed(1)
                     : 0}%
                 </p>
@@ -496,7 +513,6 @@ export default function ReporteCostosPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {empleadosFiltrados.map((emp, index) => {
-                  const sueldoMostrar = emp.sueldo_real > 0 ? emp.sueldo_real : emp.total_sueldo_recibo
                   return (
                     <tr key={emp.empleado_id} className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                       <td className="px-3 py-3 text-sm text-gray-600 font-mono">{emp.legajo}</td>
@@ -586,7 +602,7 @@ export default function ReporteCostosPage() {
                   <td className="px-3 py-4 text-right text-orange-700 font-mono bg-orange-50">{formatMoney(totales.costo_total_empleador)}</td>
                   <td className="px-3 py-4 text-right text-purple-700 font-mono bg-purple-50">{formatMoney(totales.ingresos_productividad)}</td>
                   <td className="px-3 py-4 text-right text-indigo-700 font-mono bg-indigo-50">
-                    {totales.costo_total_empleador > 0 
+                    {totales.costo_total_empleador > 0
                       ? (((totales.ingresos_productividad - totales.costo_total_empleador) / totales.costo_total_empleador) * 100).toFixed(1)
                       : 0}%
                   </td>
