@@ -17,6 +17,7 @@ interface Preview {
   total: number
   empleado: string | null
   score: number
+  candidato?: string | null
 }
 
 const limpiarNumero = (v: any): number => {
@@ -46,7 +47,6 @@ export default function ImportarResumenAcumulado({ onImportSuccess }: { onImport
       const ws = wb.Sheets[wb.SheetNames[0]]
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
 
-      // Buscar fila de cabecera: contiene "Técnico", "Servicios" y "Total"
       let idx = raw.findIndex(r =>
         r.some(c => /t[eé]cnico/i.test(String(c))) &&
         r.some(c => /servicios/i.test(String(c))) &&
@@ -75,7 +75,6 @@ export default function ImportarResumenAcumulado({ onImportSuccess }: { onImport
       if (!out.length) throw new Error('No se encontraron filas de datos')
       setFilas(out)
 
-      // Preview con matching en el servidor
       const res = await fetch('/api/admin/importar-resumen-acumulado', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -179,7 +178,12 @@ export default function ImportarResumenAcumulado({ onImportSuccess }: { onImport
                     <td className="px-3 py-2">
                       {p.empleado
                         ? <span className="text-green-700">{p.empleado} <span className="text-gray-400">({p.score})</span></span>
-                        : <span className="text-red-700 font-semibold">Sin coincidencia ({p.score})</span>}
+                        : (
+                          <span className="text-red-700 font-semibold">
+                            Sin coincidencia ({p.score})
+                            {p.candidato && <span className="block text-xs font-normal text-red-600">¿Legajo cercano: {p.candidato}? Renombralo en Gestionar Empleados o continuá sin él.</span>}
+                          </span>
+                        )}
                     </td>
                   </tr>
                 ))}

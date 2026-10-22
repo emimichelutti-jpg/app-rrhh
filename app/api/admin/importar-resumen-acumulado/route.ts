@@ -22,6 +22,17 @@ const normalizar = (s: string) =>
     .split(/\s+/)
     .filter(Boolean)
 
+// 🔧 Un token coincide si es igual, o si una de las partes es la INICIAL de la otra
+// (ej: legajo "CUELLAR, LEONARDO F." vs archivo "LEONARDO FABIAN CUELLAR")
+const coincideToken = (tf: string, tokensEmp: string[], setEmp: Set<string>) => {
+  if (setEmp.has(tf)) return true
+  for (const te of tokensEmp) {
+    if (te.length === 1 && tf.startsWith(te)) return true
+    if (tf.length === 1 && te.startsWith(tf)) return true
+  }
+  return false
+}
+
 const listarDias = (desde: string, hasta: string) => {
   const dias: string[] = []
   const [y1, m1, d1] = desde.split('-').map(Number)
@@ -58,45 +69,37 @@ export async function POST(req: Request) {
       tokens: normalizar(e.nombre_completo as string)
     }))
 
-    // 🔧 MATCHING POR CONTENCIÓN: exigimos que TODOS los tokens del nombre
-    // del archivo estén dentro del nombre oficial (cont = 1).
-    // Jaccard solo desempata si varios empleados contienen el nombre.
     const matches = filas.map(f => {
       const tokens = normalizar(f.tecnico)
       let mejor: { id: string; nombre: string } | null = null
       let mejorKey = -1
-      let mejorScore = 0
+      let candidato: string | null = null
+      let candidatoCont = 0
 
       for (const e of empList) {
         if (!e.tokens.length || !tokens.length) continue
         const setE = new Set(e.tokens)
-        const inter = tokens.filter(t => setE.has(t)).length
+        const inter = tokens.filter(t => coincideToken(t, e.tokens, setE)).length
         const cont = inter / Math.min(tokens.length, e.tokens.length)
         const union = new Set([...tokens, ...e.tokens]).size
         const jac = union > 0 ? inter / union : 0
         const key = cont * 1000 + jac
+
         if (cont >= 0.999 && key > mejorKey) {
           mejorKey = key
           mejor = e
-          mejorScore = 1
+        } else if (cont < 0.999 && cont >= 0.5 && cont > candidatoCont) {
+          candidatoCont = cont
+          candidato = e.nombre
         }
       }
 
-      // Si no hubo contención perfecta, devolvemos el mejor cont posible
-      // para que el preview muestre cuán cerca quedó (debug visual).
-      if (!mejor) {
-        let bestCont = 0
-        for (const e of empList) {
-          if (!e.tokens.length || !tokens.length) continue
-          const setE = new Set(e.tokens)
-          const inter = tokens.filter(t => setE.has(t)).length
-          const cont = inter / Math.min(tokens.length, e.tokens.length)
-          if (cont > bestCont) bestCont = cont
-        }
-        mejorScore = Math.round(bestCont * 100) / 100
+      return {
+        fila: f,
+        emp: mejor,
+        score: mejor ? 1 : Math.round(candidatoCont * 100) / 100,
+        candidato: mejor ? null : candidato
       }
-
-      return { fila: f, emp: mejor, score: mejorScore }
     })
 
     if (accion === 'preview') {
@@ -109,7 +112,8 @@ export async function POST(req: Request) {
           total: m.fila.total,
           empleado_id: m.emp?.id || null,
           empleado: m.emp?.nombre || null,
-          score: m.score
+          score: m.score,
+          candidato: m.candidato
         }))
       })
     }
