@@ -49,7 +49,7 @@ export default function ReporteCostosPage() {
   const cargarDatos = async () => {
     setLoading(true)
     try {
-      // Cargar recibos
+      // Cargar recibos del período
       const { data: recibos } = await supabase
         .from('recibos_sueldo')
         .select(`
@@ -67,29 +67,42 @@ export default function ReporteCostosPage() {
         `)
         .eq('periodo', periodo)
 
-      // Cargar incentivos
+      // Cargar incentivos del período
       const { data: incentivos } = await supabase
         .from('incentivos')
         .select('*')
         .eq('periodo', periodo)
 
       // Cargar actividades de productividad del período
+      // 🔧 PAGINADO: Supabase entrega máx. 1.000 filas por request
       const [year, month] = periodo.split('-')
       const primerDia = `${periodo}-01`
       const ultimoDiaMes = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0]
 
-      const { data: actividades } = await supabase
-        .from('actividades_diarias')
-        .select('empleado_id, precio')
-        .gte('fecha_actividad', primerDia)
-        .lte('fecha_actividad', ultimoDiaMes)
+      let actividades: { empleado_id: string; precio: number }[] = []
+      let desde = 0
+      const tamanioPagina = 1000
+      while (true) {
+        const { data, error } = await supabase
+          .from('actividades_diarias')
+          .select('empleado_id, precio')
+          .gte('fecha_actividad', primerDia)
+          .lte('fecha_actividad', ultimoDiaMes)
+          .order('id', { ascending: true })
+          .range(desde, desde + tamanioPagina - 1)
+        if (error) throw error
+        if (!data || data.length === 0) break
+        actividades = actividades.concat(data)
+        if (data.length < tamanioPagina) break
+        desde += tamanioPagina
+      }
 
       const empleadosMap = new Map<string, EmpleadoCosto>()
       const localidadesSet = new Set<string>()
 
       // Agrupar ingresos por empleado
       const ingresosPorEmpleado = new Map<string, number>()
-      actividades?.forEach(act => {
+      actividades.forEach(act => {
         const actual = ingresosPorEmpleado.get(act.empleado_id) || 0
         ingresosPorEmpleado.set(act.empleado_id, actual + (act.precio || 0))
       })
@@ -99,8 +112,8 @@ export default function ReporteCostosPage() {
         if (!emp) return
 
         const empId = emp.id
-        // La zona se toma de Gestión de Zonas (zonas.nombre).
-        // Si el empleado aún no tiene zona asignada, cae a la localidad manual.
+        // 🔧 La zona se toma de Gestión de Zonas (zonas.nombre).
+        // Si el empleado no tiene zona asignada, cae a la localidad manual.
         const localidad = emp.zonas?.nombre || emp.localidad || 'Sin localidad'
         localidadesSet.add(localidad)
 
@@ -134,7 +147,7 @@ export default function ReporteCostosPage() {
 
         empData.total_sueldo_recibo = empData.quincena_1ra + empData.quincena_2da + empData.mensual
 
-        // Base inmutable: costo empleador oficial MENOS el neto (aportes/cargas)
+        // 🔑 Base inmutable: costo empleador oficial MENOS el neto (aportes/cargas)
         empData.costo_base_empleador += costo - neto
       })
 
@@ -145,7 +158,7 @@ export default function ReporteCostosPage() {
         }
       })
 
-      // REGLA ÚNICA (idéntica a la de edición):
+      // 🔧 REGLA ÚNICA (idéntica a la de edición):
       // costo = base + sueldo aplicado (real o recibo) + incentivo
       const empleadosArray = Array.from(empleadosMap.values()).map(emp => {
         const sueldoUsar = emp.sueldo_real > 0 ? emp.sueldo_real : emp.total_sueldo_recibo
@@ -240,6 +253,7 @@ export default function ReporteCostosPage() {
             ...emp,
             sueldo_real: nuevoValor,
             total_final: sueldoUsar + emp.incentivo,
+            // 🐛 FIX: recalcula SIEMPRE desde la base inmutable (idempotente)
             costo_total_empleador: emp.costo_base_empleador + sueldoUsar + emp.incentivo
           }
         }
@@ -287,7 +301,7 @@ export default function ReporteCostosPage() {
   }
 
   const exportarCSV = () => {
-    const headers = ['Legajo', 'Técnico', 'Localidad', '1ª Quincena', '2ª Quincena', 'Mensual', 'Total Recibo', 'Sueldo Real', 'Incentivo', 'Total Neto', 'Costo Empleador', 'Ingresos Productividad', 'ROI %'].map(escapeCSV)
+    const headers = ['Legajo', 'Técnico', 'Zona', '1ª Quincena', '2ª Quincena', 'Mensual', 'Total Recibo', 'Sueldo Real', 'Incentivo', 'Total Neto', 'Costo Empleador', 'Ingresos Productividad', 'ROI %'].map(escapeCSV)
     const rows = empleadosFiltrados.map(emp => [
       emp.legajo,
       emp.nombre,
@@ -326,8 +340,7 @@ export default function ReporteCostosPage() {
   }
 
   // 💳 PLANILLA DE PAGO DE SUELDOS (quincena):
-  // - Solo pagos de la quincena según recibo (1ª, 2ª o mensual).
-  // - SIN incentivos (se pagan por separado antes de fin de mes).
+  // - Solo pagos de la quincena según recibo (SIN incentivos: se pagan por separado).
   // - El "Sueldo Real" aparece SOLO en los casos excepcionales cargados.
   // - Respeta los filtros activos (podés exportar una sola zona = un depósito).
   const exportarPlanillaPago = () => {
