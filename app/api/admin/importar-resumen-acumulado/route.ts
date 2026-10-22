@@ -22,13 +22,6 @@ const normalizar = (s: string) =>
     .split(/\s+/)
     .filter(Boolean)
 
-const scoreMatch = (a: string[], b: string[]) => {
-  const setB = new Set(b)
-  const inter = a.filter(t => setB.has(t)).length
-  const union = new Set([...a, ...b]).size
-  return union === 0 ? 0 : inter / union
-}
-
 const listarDias = (desde: string, hasta: string) => {
   const dias: string[] = []
   const [y1, m1, d1] = desde.split('-').map(Number)
@@ -44,7 +37,7 @@ const listarDias = (desde: string, hasta: string) => {
 
 export async function POST(req: Request) {
   try {
-    const { accion, filas, fechaDesde, fechaHasta } = await req.json() as {
+    const { accion, filas, fechaDesde, fechaHasta } = (await req.json()) as {
       accion: 'preview' | 'importar'
       filas: FilaResumen[]
       fechaDesde: string
@@ -59,17 +52,51 @@ export async function POST(req: Request) {
     if (dias.length === 0) return NextResponse.json({ error: 'Rango de fechas inválido' }, { status: 400 })
 
     const { data: empleados } = await supabase.from('empleados').select('id, nombre_completo')
-    const empList = (empleados || []).map(e => ({ id: e.id as string, nombre: e.nombre_completo as string, tokens: normalizar(e.nombre_completo as string) }))
+    const empList = (empleados || []).map(e => ({
+      id: e.id as string,
+      nombre: e.nombre_completo as string,
+      tokens: normalizar(e.nombre_completo as string)
+    }))
 
+    // 🔧 MATCHING POR CONTENCIÓN: exigimos que TODOS los tokens del nombre
+    // del archivo estén dentro del nombre oficial (cont = 1).
+    // Jaccard solo desempata si varios empleados contienen el nombre.
     const matches = filas.map(f => {
       const tokens = normalizar(f.tecnico)
       let mejor: { id: string; nombre: string } | null = null
+      let mejorKey = -1
       let mejorScore = 0
+
       for (const e of empList) {
-        const s = scoreMatch(tokens, e.tokens)
-        if (s > mejorScore) { mejorScore = s; mejor = e }
+        if (!e.tokens.length || !tokens.length) continue
+        const setE = new Set(e.tokens)
+        const inter = tokens.filter(t => setE.has(t)).length
+        const cont = inter / Math.min(tokens.length, e.tokens.length)
+        const union = new Set([...tokens, ...e.tokens]).size
+        const jac = union > 0 ? inter / union : 0
+        const key = cont * 1000 + jac
+        if (cont >= 0.999 && key > mejorKey) {
+          mejorKey = key
+          mejor = e
+          mejorScore = 1
+        }
       }
-      return { fila: f, emp: mejorScore >= 0.6 ? mejor : null, score: Math.round(mejorScore * 100) / 100 }
+
+      // Si no hubo contención perfecta, devolvemos el mejor cont posible
+      // para que el preview muestre cuán cerca quedó (debug visual).
+      if (!mejor) {
+        let bestCont = 0
+        for (const e of empList) {
+          if (!e.tokens.length || !tokens.length) continue
+          const setE = new Set(e.tokens)
+          const inter = tokens.filter(t => setE.has(t)).length
+          const cont = inter / Math.min(tokens.length, e.tokens.length)
+          if (cont > bestCont) bestCont = cont
+        }
+        mejorScore = Math.round(bestCont * 100) / 100
+      }
+
+      return { fila: f, emp: mejor, score: mejorScore }
     })
 
     if (accion === 'preview') {
@@ -87,7 +114,7 @@ export async function POST(req: Request) {
       })
     }
 
-    // IMPORTAR: idempotente — primero borra acumulados previos del mismo rango
+    // IMPORTAR: idempotente — borra acumulados previos del mismo rango
     const { error: delErr } = await supabase
       .from('actividades_diarias')
       .delete()
@@ -107,7 +134,7 @@ export async function POST(req: Request) {
       for (let i = 0; i < S; i++) {
         const precio = i === S - 1 ? Math.round((T - acum) * 100) / 100 : precioBase
         acum = Math.round((acum + precio) * 100) / 100
-        const fecha = dias[Math.floor((i * dias.length) / S)] // reparto parejo
+        const fecha = dias[Math.floor((i * dias.length) / S)]
         inserts.push({
           empleado_id: m.emp.id,
           tecnico_nombre: m.fila.tecnico,
