@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import ImportarProductividadDiaria from '@/components/ImportarProductividadDiaria'
+import ImportarResumenAcumulado from '@/components/ImportarResumenAcumulado'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -406,6 +407,7 @@ export default function ProductividadPage() {
 
         {/* Importar */}
         <ImportarProductividadDiaria onImportSuccess={cargarTodo} />
+        <ImportarResumenAcumulado onImportSuccess={cargarTodo} />
       </div>
     </div>
   )
