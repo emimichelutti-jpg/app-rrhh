@@ -4,6 +4,8 @@ import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 import ImportarIncentivos from '@/components/ImportarIncentivos'
+import AbonosZona from '@/components/AbonosZona'
+import { calcularAbonos } from '@/lib/abonos'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,6 +17,7 @@ interface EmpleadoCosto {
   empleado_id: string
   nombre: string
   localidad: string
+  zona_id: string | null
   quincena_1ra: number
   quincena_2da: number
   mensual: number
@@ -25,6 +28,7 @@ interface EmpleadoCosto {
   costo_base_empleador: number
   costo_total_empleador: number
   ingresos_productividad: number
+  abono_asignado: number
   roi: number
 }
 
@@ -41,6 +45,8 @@ export default function ReporteCostosPage() {
   const [empleados, setEmpleados] = useState<EmpleadoCosto[]>([])
   const [localidades, setLocalidades] = useState<string[]>([])
   const [mostrarImportar, setMostrarImportar] = useState(false)
+  const [mostrarAbonos, setMostrarAbonos] = useState(false)
+  const [totalAbonos, setTotalAbonos] = useState(0)
 
   useEffect(() => {
     cargarDatos()
@@ -49,7 +55,6 @@ export default function ReporteCostosPage() {
   const cargarDatos = async () => {
     setLoading(true)
     try {
-      // Cargar recibos del período
       const { data: recibos } = await supabase
         .from('recibos_sueldo')
         .select(`
@@ -67,18 +72,16 @@ export default function ReporteCostosPage() {
         `)
         .eq('periodo', periodo)
 
-      // Cargar incentivos del período
       const { data: incentivos } = await supabase
         .from('incentivos')
         .select('*')
         .eq('periodo', periodo)
 
-      // Cargar actividades de productividad del período
-      // 🔧 PAGINADO: Supabase entrega máx. 1.000 filas por request
       const [year, month] = periodo.split('-')
       const primerDia = `${periodo}-01`
       const ultimoDiaMes = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0]
 
+      // 🔧 PAGINACIÓN: Supabase entrega máx. 1.000 filas por request
       let actividades: { empleado_id: string; precio: number }[] = []
       let desde = 0
       const tamanioPagina = 1000
@@ -100,7 +103,6 @@ export default function ReporteCostosPage() {
       const empleadosMap = new Map<string, EmpleadoCosto>()
       const localidadesSet = new Set<string>()
 
-      // Agrupar ingresos por empleado
       const ingresosPorEmpleado = new Map<string, number>()
       actividades.forEach(act => {
         const actual = ingresosPorEmpleado.get(act.empleado_id) || 0
@@ -112,8 +114,6 @@ export default function ReporteCostosPage() {
         if (!emp) return
 
         const empId = emp.id
-        // 🔧 La zona se toma de Gestión de Zonas (zonas.nombre).
-        // Si el empleado no tiene zona asignada, cae a la localidad manual.
         const localidad = emp.zonas?.nombre || emp.localidad || 'Sin localidad'
         localidadesSet.add(localidad)
 
@@ -123,6 +123,7 @@ export default function ReporteCostosPage() {
             empleado_id: empId,
             nombre: emp.nombre_completo,
             localidad,
+            zona_id: emp.zona_id || null,
             quincena_1ra: 0,
             quincena_2da: 0,
             mensual: 0,
@@ -133,6 +134,7 @@ export default function ReporteCostosPage() {
             costo_base_empleador: 0,
             costo_total_empleador: 0,
             ingresos_productividad: ingresosPorEmpleado.get(empId) || 0,
+            abono_asignado: 0,
             roi: 0
           })
         }
@@ -146,8 +148,6 @@ export default function ReporteCostosPage() {
         else if (recibo.quincena === 'Mensual') empData.mensual = neto
 
         empData.total_sueldo_recibo = empData.quincena_1ra + empData.quincena_2da + empData.mensual
-
-        // 🔑 Base inmutable: costo empleador oficial MENOS el neto (aportes/cargas)
         empData.costo_base_empleador += costo - neto
       })
 
@@ -158,8 +158,31 @@ export default function ReporteCostosPage() {
         }
       })
 
-      // 🔧 REGLA ÚNICA (idéntica a la de edición):
-      // costo = base + sueldo aplicado (real o recibo) + incentivo
+      // 💰 ABONOS / FACTURAS DE RED: se reparten en partes iguales
+      // entre los empleados de la zona presentes en el reporte
+      const { abonos } = await calcularAbonos(supabase, primerDia, ultimoDiaMes)
+      const idsPorZona = new Map<string, string[]>()
+      empleadosMap.forEach((empData, id) => {
+        if (!empData.zona_id) return
+        const arr = idsPorZona.get(empData.zona_id) || []
+        arr.push(id)
+        idsPorZona.set(empData.zona_id, arr)
+      })
+      abonos.forEach(ab => {
+        const ids = idsPorZona.get(ab.zona_id) || []
+        if (!ids.length) return
+        const parte = ab.monto_prorrateado / ids.length
+        ids.forEach(id => {
+          const e = empleadosMap.get(id)!
+          e.ingresos_productividad += parte
+          e.abono_asignado += parte
+        })
+      })
+      let totalAbonosAplicado = 0
+      empleadosMap.forEach(e => { totalAbonosAplicado += e.abono_asignado })
+      setTotalAbonos(totalAbonosAplicado)
+
+      // REGLA ÚNICA (idempotente): costo = base + sueldo aplicado + incentivo
       const empleadosArray = Array.from(empleadosMap.values()).map(emp => {
         const sueldoUsar = emp.sueldo_real > 0 ? emp.sueldo_real : emp.total_sueldo_recibo
         emp.total_final = sueldoUsar + emp.incentivo
@@ -183,7 +206,6 @@ export default function ReporteCostosPage() {
 
   const handleIncentivoChange = async (empleadoId: string, nuevoValor: number) => {
     setGuardando(empleadoId)
-
     try {
       const { data: existente } = await supabase
         .from('incentivos')
@@ -193,21 +215,10 @@ export default function ReporteCostosPage() {
         .maybeSingle()
 
       if (existente) {
-        const { error } = await supabase
-          .from('incentivos')
-          .update({ monto_bruto: nuevoValor })
-          .eq('id', existente.id)
-
+        const { error } = await supabase.from('incentivos').update({ monto_bruto: nuevoValor }).eq('id', existente.id)
         if (error) throw error
       } else {
-        const { error } = await supabase
-          .from('incentivos')
-          .insert({
-            empleado_id: empleadoId,
-            periodo: periodo,
-            monto_bruto: nuevoValor
-          })
-
+        const { error } = await supabase.from('incentivos').insert({ empleado_id: empleadoId, periodo, monto_bruto: nuevoValor })
         if (error) throw error
       }
 
@@ -232,17 +243,12 @@ export default function ReporteCostosPage() {
 
   const handleSueldoRealChange = async (empleadoId: string, nuevoValor: number) => {
     setGuardandoSueldo(empleadoId)
-
     try {
       const response = await fetch('/api/admin/actualizar-sueldo-real', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          empleado_id: empleadoId,
-          sueldo_real_mensual: nuevoValor > 0 ? nuevoValor : null
-        })
+        body: JSON.stringify({ empleado_id: empleadoId, sueldo_real_mensual: nuevoValor > 0 ? nuevoValor : null })
       })
-
       const data = await response.json()
       if (!response.ok) throw new Error(data.error)
 
@@ -253,7 +259,6 @@ export default function ReporteCostosPage() {
             ...emp,
             sueldo_real: nuevoValor,
             total_final: sueldoUsar + emp.incentivo,
-            // 🐛 FIX: recalcula SIEMPRE desde la base inmutable (idempotente)
             costo_total_empleador: emp.costo_base_empleador + sueldoUsar + emp.incentivo
           }
         }
@@ -294,28 +299,19 @@ export default function ReporteCostosPage() {
     })
   }, [empleadosFiltrados])
 
-  // Escapa comillas y comas para que el CSV no se desalinee
   const escapeCSV = (val: any) => {
     const str = String(val ?? '')
     return `"${str.replace(/"/g, '""')}"`
   }
 
   const exportarCSV = () => {
-    const headers = ['Legajo', 'Técnico', 'Zona', '1ª Quincena', '2ª Quincena', 'Mensual', 'Total Recibo', 'Sueldo Real', 'Incentivo', 'Total Neto', 'Costo Empleador', 'Ingresos Productividad', 'ROI %'].map(escapeCSV)
+    const headers = ['Legajo', 'Técnico', 'Zona', '1ª Quincena', '2ª Quincena', 'Mensual', 'Total Recibo', 'Sueldo Real', 'Incentivo', 'Total Neto', 'Costo Empleador', 'Ingresos Productividad', 'Abono Zona Incluido', 'ROI %'].map(escapeCSV)
     const rows = empleadosFiltrados.map(emp => [
-      emp.legajo,
-      emp.nombre,
-      emp.localidad,
-      emp.quincena_1ra,
-      emp.quincena_2da,
-      emp.mensual,
-      emp.total_sueldo_recibo,
-      emp.sueldo_real || emp.total_sueldo_recibo,
-      emp.incentivo,
-      emp.total_final,
-      emp.costo_total_empleador,
-      emp.ingresos_productividad,
-      emp.roi.toFixed(2)
+      emp.legajo, emp.nombre, emp.localidad,
+      emp.quincena_1ra, emp.quincena_2da, emp.mensual,
+      emp.total_sueldo_recibo, emp.sueldo_real || emp.total_sueldo_recibo, emp.incentivo,
+      emp.total_final, emp.costo_total_empleador, emp.ingresos_productividad,
+      emp.abono_asignado > 0 ? emp.abono_asignado : '', emp.roi.toFixed(2)
     ].map(escapeCSV))
 
     const totalesRow = [
@@ -323,15 +319,10 @@ export default function ReporteCostosPage() {
       totales.quincena_1ra, totales.quincena_2da, totales.mensual,
       totales.total_sueldo_recibo, totales.sueldo_real || totales.total_sueldo_recibo,
       totales.incentivo, totales.total_final, totales.costo_total_empleador,
-      totales.ingresos_productividad, ''
+      totales.ingresos_productividad, '', ''
     ].map(escapeCSV)
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(',')),
-      totalesRow.join(',')
-    ].join('\n')
-
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(',')), totalesRow.join(',')].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
@@ -339,53 +330,29 @@ export default function ReporteCostosPage() {
     link.click()
   }
 
-  // 💳 PLANILLA DE PAGO DE SUELDOS (quincena):
-  // - Solo pagos de la quincena según recibo (SIN incentivos: se pagan por separado).
-  // - El "Sueldo Real" aparece SOLO en los casos excepcionales cargados.
-  // - Respeta los filtros activos (podés exportar una sola zona = un depósito).
+  // 💳 PLANILLA DE PAGO: solo quincenas según recibo, sin incentivos,
+  // con sueldo real únicamente en casos excepcionales
   const exportarPlanillaPago = () => {
     const filas = empleadosFiltrados
       .slice()
       .sort((a, b) => (parseInt(a.legajo) || 0) - (parseInt(b.legajo) || 0) || a.nombre.localeCompare(b.nombre))
       .map(emp => [
-        emp.legajo,
-        emp.nombre,
-        emp.localidad,
-        emp.quincena_1ra,
-        emp.quincena_2da,
-        emp.mensual,
-        emp.total_sueldo_recibo,
-        emp.sueldo_real > 0 ? emp.sueldo_real : ''
+        emp.legajo, emp.nombre, emp.localidad,
+        emp.quincena_1ra, emp.quincena_2da, emp.mensual,
+        emp.total_sueldo_recibo, emp.sueldo_real > 0 ? emp.sueldo_real : ''
       ])
 
-    const header = [
-      'Legajo', 'Técnico', 'Zona',
-      '1ª Quincena', '2ª Quincena', 'Mensual',
-      'Total Recibo', 'Sueldo Real (excepción)'
-    ]
-    const totalesRow = [
-      '', '', 'TOTALES',
-      totales.quincena_1ra, totales.quincena_2da, totales.mensual,
-      totales.total_sueldo_recibo, ''
-    ]
+    const header = ['Legajo', 'Técnico', 'Zona', '1ª Quincena', '2ª Quincena', 'Mensual', 'Total Recibo', 'Sueldo Real (excepción)']
+    const totalesRow = ['', '', 'TOTALES', totales.quincena_1ra, totales.quincena_2da, totales.mensual, totales.total_sueldo_recibo, '']
 
     const ws = XLSX.utils.aoa_to_sheet([header, ...filas, totalesRow])
-    ws['!cols'] = [
-      { wch: 8 }, { wch: 32 }, { wch: 16 },
-      { wch: 13 }, { wch: 13 }, { wch: 13 },
-      { wch: 14 }, { wch: 22 }
-    ]
+    ws['!cols'] = [{ wch: 8 }, { wch: 32 }, { wch: 16 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 22 }]
 
-    // Resumen por zona: un pago/depósito por sucursal, también sin incentivos
     const porZona = new Map<string, { emp: number; q1: number; q2: number; men: number; total: number; real: number }>()
     empleadosFiltrados.forEach(e => {
       const z = porZona.get(e.localidad) || { emp: 0, q1: 0, q2: 0, men: 0, total: 0, real: 0 }
-      z.emp += 1
-      z.q1 += e.quincena_1ra
-      z.q2 += e.quincena_2da
-      z.men += e.mensual
-      z.total += e.total_sueldo_recibo
-      z.real += e.sueldo_real > 0 ? e.sueldo_real : 0
+      z.emp += 1; z.q1 += e.quincena_1ra; z.q2 += e.quincena_2da; z.men += e.mensual
+      z.total += e.total_sueldo_recibo; z.real += e.sueldo_real > 0 ? e.sueldo_real : 0
       porZona.set(e.localidad, z)
     })
     const resumen = Array.from(porZona.entries())
@@ -396,9 +363,7 @@ export default function ReporteCostosPage() {
       ['Zona', 'Empleados', '1ª Quincena', '2ª Quincena', 'Mensual', 'Total Recibo', 'Sueldo Real (excepción)'],
       ...resumen
     ])
-    ws2['!cols'] = [
-      { wch: 16 }, { wch: 10 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 22 }
-    ]
+    ws2['!cols'] = [{ wch: 16 }, { wch: 10 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 14 }, { wch: 22 }]
 
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Pago Sueldos')
@@ -407,12 +372,7 @@ export default function ReporteCostosPage() {
   }
 
   const formatMoney = (amount: number) => {
-    return new Intl.NumberFormat('es-AR', {
-      style: 'currency',
-      currency: 'ARS',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount)
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
   }
 
   const getNombrePeriodo = (periodo: string) => {
@@ -441,13 +401,19 @@ export default function ReporteCostosPage() {
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-[1800px] mx-auto">
-        {/* Header */}
         <div className="flex justify-between items-start mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">📊 Reporte de Costos & ROI</h1>
             <p className="text-gray-600 mt-1">Resumen de sueldos, incentivos, productividad y ROI - {getNombrePeriodo(periodo)}</p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap justify-end">
+            <button
+              onClick={() => setMostrarAbonos(true)}
+              className="bg-amber-500 text-white px-6 py-3 rounded-lg hover:bg-amber-600 flex items-center gap-2 shadow-sm font-medium transition-colors"
+              title="Abonos fijos por zona (ej: Moreno – mantenimiento de red)"
+            >
+              💰 Abonos de Zona
+            </button>
             <button
               onClick={() => setMostrarImportar(true)}
               className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 flex items-center gap-2 shadow-sm font-medium transition-colors"
@@ -476,25 +442,17 @@ export default function ReporteCostosPage() {
           </div>
         </div>
 
-        {/* Filtros */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Período</label>
-              <input
-                type="month"
-                value={periodo}
-                onChange={(e) => setPeriodo(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              <input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Tipo de Empleado</label>
-              <select
-                value={filtroTipo}
-                onChange={(e) => setFiltroTipo(e.target.value as FiltroTipo)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
+              <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value as FiltroTipo)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                 <option value="todos">Todos</option>
                 <option value="quincenal">Quincenales</option>
                 <option value="mensual">Mensuales</option>
@@ -502,31 +460,20 @@ export default function ReporteCostosPage() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Localidad</label>
-              <select
-                value={filtroLocalidad}
-                onChange={(e) => setFiltroLocalidad(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
+              <select value={filtroLocalidad} onChange={e => setFiltroLocalidad(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                 <option value="todas">Todas las localidades</option>
-                {localidades.map(loc => (
-                  <option key={loc} value={loc}>{loc}</option>
-                ))}
+                {localidades.map(loc => <option key={loc} value={loc}>{loc}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Buscar empleado</label>
-              <input
-                type="text"
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                placeholder="Nombre del técnico..."
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              <input type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Nombre del técnico..."
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
             </div>
           </div>
         </div>
 
-        {/* Tarjetas de resumen */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <div className="flex items-center gap-3">
@@ -579,7 +526,6 @@ export default function ReporteCostosPage() {
           </div>
         </div>
 
-        {/* Tabla */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full">
@@ -601,82 +547,58 @@ export default function ReporteCostosPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {empleadosFiltrados.map((emp, index) => {
-                  return (
-                    <tr key={emp.empleado_id} className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
-                      <td className="px-3 py-3 text-sm text-gray-600 font-mono">{emp.legajo}</td>
-                      <td className="px-3 py-3 text-sm font-medium text-gray-900">{emp.nombre}</td>
-                      <td className="px-3 py-3 text-sm text-gray-600">
-                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-xs font-medium">
-                          {emp.localidad}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right text-gray-900 font-mono">
-                        {emp.quincena_1ra > 0 ? formatMoney(emp.quincena_1ra) : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right text-gray-900 font-mono">
-                        {emp.quincena_2da > 0 ? formatMoney(emp.quincena_2da) : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right text-gray-900 font-mono">
-                        {emp.mensual > 0 ? formatMoney(emp.mensual) : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right font-semibold text-gray-900 font-mono bg-blue-50/50">
-                        {formatMoney(emp.total_sueldo_recibo)}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right">
-                        {guardandoSueldo === emp.empleado_id ? (
-                          <div className="flex justify-end">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600"></div>
-                          </div>
-                        ) : (
-                          <input
-                            type="number"
-                            defaultValue={emp.sueldo_real || ''}
-                            onBlur={(e) => handleSueldoRealChange(emp.empleado_id, parseFloat(e.target.value) || 0)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') e.currentTarget.blur()
-                            }}
-                            className="w-24 px-2 py-1.5 text-right text-sm border border-yellow-300 rounded-md focus:ring-2 focus:ring-yellow-500 focus:border-transparent font-mono bg-yellow-50"
-                            placeholder={emp.total_sueldo_recibo.toString()}
-                            title={`Si está vacío, se usa el sueldo del recibo: ${formatMoney(emp.total_sueldo_recibo)}`}
-                          />
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right">
-                        {guardando === emp.empleado_id ? (
-                          <div className="flex justify-end">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                          </div>
-                        ) : (
-                          <input
-                            type="number"
-                            defaultValue={emp.incentivo || ''}
-                            onBlur={(e) => handleIncentivoChange(emp.empleado_id, parseFloat(e.target.value) || 0)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') e.currentTarget.blur()
-                            }}
-                            className="w-24 px-2 py-1.5 text-right text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                            placeholder="0"
-                          />
-                        )}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right font-bold text-green-700 font-mono bg-green-50/50">
-                        {formatMoney(emp.total_final)}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right font-bold text-orange-700 font-mono bg-orange-50/50">
-                        {formatMoney(emp.costo_total_empleador)}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right font-bold text-purple-700 font-mono bg-purple-50/50">
-                        {formatMoney(emp.ingresos_productividad)}
-                      </td>
-                      <td className="px-3 py-3 text-sm text-right font-bold font-mono">
-                        <span className={`px-2 py-1 rounded-md text-xs ${getROIColor(emp.roi)}`}>
-                          {emp.roi.toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
+                {empleadosFiltrados.map((emp, index) => (
+                  <tr key={emp.empleado_id} className={`hover:bg-gray-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                    <td className="px-3 py-3 text-sm text-gray-600 font-mono">{emp.legajo}</td>
+                    <td className="px-3 py-3 text-sm font-medium text-gray-900">{emp.nombre}</td>
+                    <td className="px-3 py-3 text-sm text-gray-600">
+                      <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-xs font-medium">{emp.localidad}</span>
+                    </td>
+                    <td className="px-3 py-3 text-sm text-right text-gray-900 font-mono">
+                      {emp.quincena_1ra > 0 ? formatMoney(emp.quincena_1ra) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-right text-gray-900 font-mono">
+                      {emp.quincena_2da > 0 ? formatMoney(emp.quincena_2da) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-right text-gray-900 font-mono">
+                      {emp.mensual > 0 ? formatMoney(emp.mensual) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-right font-semibold text-gray-900 font-mono bg-blue-50/50">{formatMoney(emp.total_sueldo_recibo)}</td>
+                    <td className="px-3 py-3 text-sm text-right">
+                      {guardandoSueldo === emp.empleado_id ? (
+                        <div className="flex justify-end"><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600"></div></div>
+                      ) : (
+                        <input type="number" defaultValue={emp.sueldo_real || ''}
+                          onBlur={e => handleSueldoRealChange(emp.empleado_id, parseFloat(e.target.value) || 0)}
+                          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                          className="w-24 px-2 py-1.5 text-right text-sm border border-yellow-300 rounded-md focus:ring-2 focus:ring-yellow-500 focus:border-transparent font-mono bg-yellow-50"
+                          placeholder={emp.total_sueldo_recibo.toString()}
+                          title={`Si está vacío, se usa el sueldo del recibo: ${formatMoney(emp.total_sueldo_recibo)}`} />
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-right">
+                      {guardando === emp.empleado_id ? (
+                        <div className="flex justify-end"><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div></div>
+                      ) : (
+                        <input type="number" defaultValue={emp.incentivo || ''}
+                          onBlur={e => handleIncentivoChange(emp.empleado_id, parseFloat(e.target.value) || 0)}
+                          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                          className="w-24 px-2 py-1.5 text-right text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                          placeholder="0" />
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-right font-bold text-green-700 font-mono bg-green-50/50">{formatMoney(emp.total_final)}</td>
+                    <td className="px-3 py-3 text-sm text-right font-bold text-orange-700 font-mono bg-orange-50/50">{formatMoney(emp.costo_total_empleador)}</td>
+                    <td className="px-3 py-3 text-sm text-right font-bold text-purple-700 font-mono bg-purple-50/50"
+                      title={emp.abono_asignado > 0 ? `Incluye abono/factura de red: ${formatMoney(emp.abono_asignado)}` : undefined}>
+                      {formatMoney(emp.ingresos_productividad)}
+                      {emp.abono_asignado > 0 && <span className="block text-[10px] font-normal text-amber-600">💰 abono {formatMoney(emp.abono_asignado)}</span>}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-right font-bold font-mono">
+                      <span className={`px-2 py-1 rounded-md text-xs ${getROIColor(emp.roi)}`}>{emp.roi.toFixed(1)}%</span>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
               <tfoot className="bg-gray-100 border-t-2 border-gray-300">
                 <tr className="font-bold">
@@ -701,7 +623,6 @@ export default function ReporteCostosPage() {
           </div>
         </div>
 
-        {/* Info footer */}
         <div className="mt-4 text-center text-sm text-gray-500">
           Mostrando {empleadosFiltrados.length} de {empleados.length} empleados
           {filtroTipo !== 'todos' && ` • Filtrado: ${filtroTipo}`}
@@ -710,20 +631,23 @@ export default function ReporteCostosPage() {
             💡 "Planilla de Pago" exporta solo los pagos de la quincena según recibo (sin incentivos) y el sueldo real en casos excepcionales.
             La zona se toma de Gestión de Zonas cuando el empleado tiene zona asignada.
           </p>
+          {totalAbonos > 0 && (
+            <p className="mt-1 text-xs text-amber-700 font-medium">
+              💰 Incluye abonos/facturas de red: {formatMoney(totalAbonos)} (repartidos en partes iguales entre los empleados de cada zona con abono cargado).
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Modal de importar incentivos */}
       {mostrarImportar && (
         <ImportarIncentivos
           periodo={periodo}
-          onImportados={(cantidad) => {
-            alert(`✅ ${cantidad} incentivos importados correctamente`)
-            cargarDatos()
-            setMostrarImportar(false)
-          }}
+          onImportados={cantidad => { alert(`✅ ${cantidad} incentivos importados correctamente`); cargarDatos(); setMostrarImportar(false) }}
           onClose={() => setMostrarImportar(false)}
         />
+      )}
+      {mostrarAbonos && (
+        <AbonosZona periodoInicial={periodo} onCambios={() => cargarDatos()} onClose={() => setMostrarAbonos(false)} />
       )}
     </div>
   )
