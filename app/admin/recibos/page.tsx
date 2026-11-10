@@ -591,9 +591,10 @@ export default function AdminRecibosPage() {
             </div>
 
             <div className="flex-1 overflow-hidden p-4 bg-gray-100">
-              {(reciboVerPDF.pdf_original_url || reciboVerPDF.pdf_url) ? (
-                <iframe
-                  src={reciboVerPDF.pdf_original_url || reciboVerPDF.pdf_url}
+             {(reciboVerPDF.pdf_url || reciboVerPDF.pdf_original_url) ? (
+  <iframe
+    src={reciboVerPDF.pdf_url || reciboVerPDF.pdf_original_url}
+
                   className="w-full h-full border-0 rounded-lg"
                   title="PDF del Recibo"
                 />
